@@ -75,8 +75,8 @@ button{font-family:inherit;}
 .addbtn[disabled], .qtybox button[disabled]{opacity:.4;cursor:not-allowed;}
 .stockinput{width:64px;padding:7px 6px;border-radius:8px;border:1px solid var(--line);
   background:var(--bg2);color:var(--text);text-align:right;font-size:12.5px;}
-.priceedit .fields{display:flex;align-items:center;gap:6px;}
 .priceedit .lbl2{font-size:10px;color:var(--muted);text-align:center;margin-bottom:2px;}
+.priceedit .fieldlbl{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px;display:block;}
 
 /* ---- Photo upload rows in admin ---- */
 .photorow{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
@@ -249,11 +249,13 @@ footer b{color:var(--gold2);}
 .tabs button.active{background:var(--gold);color:#1a1400;border-color:var(--gold);}
 .tabpane{display:none;}
 .tabpane.active{display:block;}
-.priceedit{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;
-  border-bottom:1px solid var(--line);font-size:13.5px;}
-.priceedit input{width:78px;padding:7px 8px;border-radius:8px;border:1px solid var(--line);
-  background:var(--bg2);color:var(--text);text-align:right;font-size:13.5px;}
-.cathead{color:var(--gold2);font-size:13px;font-weight:700;margin:14px 0 4px;}
+.priceedit{background:var(--bg2);border:1px solid var(--line);border-radius:14px;
+  padding:16px;margin-bottom:14px;font-size:14px;line-height:1.4;}
+.priceedit .priceInput,.priceedit .stockInput{width:100%;padding:9px 10px;border-radius:8px;
+  border:1px solid var(--line);background:var(--card2);color:var(--text);text-align:right;font-size:14px;}
+.cathead{color:var(--gold2);font-size:13px;font-weight:700;margin:22px 0 10px;
+  padding-bottom:6px;border-bottom:1px solid rgba(212,175,55,.25);}
+.cathead:first-child{margin-top:4px;}
 .statrow{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px;}
 .statrow b{color:var(--gold2);}
 .toggleline{display:flex;align-items:center;justify-content:space-between;padding:6px 0 16px;}
@@ -309,11 +311,11 @@ footer b{color:var(--gold2);}
   .photorow .preview{width:74px;height:74px;}
   .adminmodal p.sub{font-size:14px;}
   .adminmodal .cathead{font-size:13px;}
-  .adminmodal .priceedit{font-size:15px;padding:14px 0;}
+  .adminmodal .priceedit{font-size:15px;padding:20px;}
   .adminmodal input[type=text],.adminmodal input[type=number],.adminmodal input[type=password]{font-size:15px;padding:12px 14px;}
   .adminmodal .tabs button{padding:11px 8px;font-size:13.5px;}
   .adminmodal .btn,.adminmodal .btn.secondary,.adminmodal .btn.danger{width:auto;padding:12px 26px;display:inline-block;}
-  .adminmodal #savePrices,.adminmodal #addItemBtn,.adminmodal #addPromoBtn,.adminmodal #changePassBtn,.adminmodal #changeRepPassBtn,.adminmodal #logoutBtn,.adminmodal #resetStats{width:100%;}
+  .adminmodal #savePrices,.adminmodal #addItemBtn,.adminmodal #addPromoBtn,.adminmodal #changePassBtn,.adminmodal #changeRepPassBtn,.adminmodal #logoutBtn{width:100%;}
 }
 </style>
 </head>
@@ -514,12 +516,16 @@ footer b{color:var(--gold2);}
     </div>
 
     <div class="tabpane" id="tabReportes">
-      <div class="statrow"><div>Visitas totales</div><b id="statVisits">0</b></div>
-      <div class="statrow"><div>Búsquedas realizadas</div><b id="statSearches">0</b></div>
-      <div class="statrow"><div>Mensajes al chatbot</div><b id="statChats">0</b></div>
-      <div class="cathead">Platos más buscados</div>
-      <div id="topTerms"></div>
-      <button class="btn secondary" id="resetStats" style="margin-top:14px;">Reiniciar reporte</button>
+      <div class="cathead" style="margin-top:4px;">Ventas de hoy</div>
+      <div class="statrow"><div>Órdenes vendidas en el local</div><b id="statPickupCount">0</b></div>
+      <div class="statrow"><div>Total vendido en el local</div><b id="statPickupTotal">$0</b></div>
+      <div class="statrow"><div>Órdenes de delivery entregadas</div><b id="statDeliveryCount">0</b></div>
+      <div class="statrow"><div>Total vendido en delivery</div><b id="statDeliveryTotal">$0</b></div>
+      <div class="statrow" style="border-bottom:none;margin-top:8px;padding-top:14px;border-top:2px solid rgba(212,175,55,.3);">
+        <div style="font-size:16px;font-weight:800;color:var(--gold2);">Total del día</div>
+        <b id="statGrandTotal" style="font-size:18px;color:var(--gold2);">$0</b>
+      </div>
+      <p class="sub" id="statPendingNote" style="margin-top:10px;"></p>
     </div>
 
     <button class="btn" id="logoutBtn" style="margin-top:18px;font-weight:800;">Cerrar sesión</button>
@@ -1624,16 +1630,28 @@ function renderAdminPrices(){
       const row=document.createElement('div'); row.className='priceedit';
       const price = effectivePrice(it);
       const stock = stockOf(it.id);
-      row.innerHTML = `<div class="fields" style="width:100%;display:flex;flex-direction:column;gap:6px;">
-        <input type="text" class="nameInput" data-id="${it.id}" value="${(it.n||'').replace(/"/g,'&quot;')}" placeholder="Nombre del plato" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:14px;font-weight:700;">
-        <input type="text" class="subInput" data-id="${it.id}" value="${(it.sub||'').replace(/"/g,'&quot;')}" placeholder="Descripción (opcional)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:13px;">
-        <div style="display:flex;gap:8px;">
-          <div style="flex:1;"><div class="lbl2">Precio</div><input type="number" step="0.5" min="0" class="priceInput" data-id="${it.id}" value="${price}"></div>
-          <div style="flex:1;"><div class="lbl2">Disponibles</div><input type="number" step="1" min="0" class="stockinput stockInput" data-id="${it.id}" placeholder="∞" value="${stock===null?'':stock}"></div>
+      row.innerHTML = `<div class="fields" style="width:100%;display:flex;flex-direction:column;gap:14px;">
+        <div>
+          <span class="fieldlbl">Nombre del plato</span>
+          <input type="text" class="nameInput" data-id="${it.id}" value="${(it.n||'').replace(/"/g,'&quot;')}" placeholder="Nombre del plato" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--text);font-size:15px;font-weight:700;">
         </div>
-        <input type="text" class="variantsInput" data-id="${it.id}" value="${(it.variants||[]).join(', ')}" placeholder="Opción única que elige el cliente, ej. base: Plátano, Papa, Yuca, Mangú — opcional" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:13px;">
-        <input type="text" class="checksInput" data-id="${it.id}" value="${(it.checks||[]).join(', ')}" placeholder="Ingredientes que el cliente puede quitar, ej. Cebolla, Tomate, Mayo — opcional" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:13px;">
-        <button class="btn secondary deleteItemBtn" data-id="${it.id}" data-name="${(it.n||'').replace(/"/g,'&quot;')}" style="align-self:flex-start;padding:6px 14px;font-size:13px;">Eliminar producto</button>
+        <div>
+          <span class="fieldlbl">Descripción (opcional)</span>
+          <input type="text" class="subInput" data-id="${it.id}" value="${(it.sub||'').replace(/"/g,'&quot;')}" placeholder="Sin descripción" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--text);font-size:13.5px;">
+        </div>
+        <div style="display:flex;gap:12px;">
+          <div style="flex:1;"><span class="fieldlbl">Precio</span><input type="number" step="0.5" min="0" class="priceInput" data-id="${it.id}" value="${price}"></div>
+          <div style="flex:1;"><span class="fieldlbl">Disponibles hoy</span><input type="number" step="1" min="0" class="stockinput stockInput" data-id="${it.id}" placeholder="Sin límite" value="${stock===null?'':stock}"></div>
+        </div>
+        <div>
+          <span class="fieldlbl">Opción que elige el cliente (ej. base: Plátano, Papa, Yuca, Mangú) — opcional</span>
+          <input type="text" class="variantsInput" data-id="${it.id}" value="${(it.variants||[]).join(', ')}" placeholder="Sin opciones" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--text);font-size:13.5px;">
+        </div>
+        <div>
+          <span class="fieldlbl">Ingredientes que el cliente puede quitar (ej. Cebolla, Tomate, Mayo) — opcional</span>
+          <input type="text" class="checksInput" data-id="${it.id}" value="${(it.checks||[]).join(', ')}" placeholder="Sin ingredientes configurados" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--text);font-size:13.5px;">
+        </div>
+        <button class="btn secondary deleteItemBtn" data-id="${it.id}" data-name="${(it.n||'').replace(/"/g,'&quot;')}" style="align-self:flex-start;padding:8px 16px;font-size:13px;">🗑 Eliminar producto</button>
       </div>`;
       wrap.appendChild(row);
     });
@@ -1859,26 +1877,44 @@ document.getElementById('addPromoBtn').addEventListener('click', async ()=>{
   setTimeout(()=>s.style.display='none', 2000);
 });
 
-/* --- Reportes tab --- */
+/* --- Reportes tab: ventas reales del día (del local + delivery), no visitas ---
+   Cuenta como venta un pedido pickup ya confirmado (status:'pagado') o un
+   pedido de delivery ya entregado (deliveryStatus:'entregado'). */
+let unsubscribeReports = null;
+function startOfTodayTimestamp(){
+  const d = new Date(); d.setHours(0,0,0,0);
+  return firebase.firestore.Timestamp.fromDate(d);
+}
 function renderAdminReports(){
-  stats = loadStats();
-  document.getElementById('statVisits').textContent = stats.visits||0;
-  document.getElementById('statSearches').textContent = stats.searches||0;
-  document.getElementById('statChats').textContent = stats.chats||0;
-  const top = Object.entries(stats.terms||{}).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  const wrap = document.getElementById('topTerms');
-  wrap.innerHTML = top.length ? '' : '<div class="noresult">Todavía no hay búsquedas registradas</div>';
-  top.forEach(([term,count])=>{
-    const d=document.createElement('div'); d.className='statrow';
-    d.innerHTML = `<div>"${term}"</div><b>${count}</b>`;
-    wrap.appendChild(d);
+  if(unsubscribeReports) return; // ya está escuchando
+  if(!PEDIDOS){
+    document.getElementById('statPendingNote').textContent = 'No hay conexión con el sistema de pedidos.';
+    return;
+  }
+  unsubscribeReports = PEDIDOS.where('createdAt','>=', startOfTodayTimestamp()).onSnapshot(snapshot=>{
+    let pickupCount=0, pickupTotal=0, deliveryCount=0, deliveryTotal=0, pendingCount=0;
+    snapshot.forEach(doc=>{
+      const o = doc.data();
+      if(o.type==='delivery'){
+        if(o.deliveryStatus==='entregado'){ deliveryCount++; deliveryTotal += Number(o.total)||0; }
+        else pendingCount++;
+      } else {
+        if(o.status==='pagado'){ pickupCount++; pickupTotal += Number(o.total)||0; }
+        else pendingCount++;
+      }
+    });
+    document.getElementById('statPickupCount').textContent = pickupCount;
+    document.getElementById('statPickupTotal').textContent = fmt(pickupTotal);
+    document.getElementById('statDeliveryCount').textContent = deliveryCount;
+    document.getElementById('statDeliveryTotal').textContent = fmt(deliveryTotal);
+    document.getElementById('statGrandTotal').textContent = fmt(pickupTotal+deliveryTotal);
+    document.getElementById('statPendingNote').textContent = pendingCount>0
+      ? `Hay ${pendingCount} pedido${pendingCount===1?'':'s'} de hoy todavía sin confirmar/entregar — no cuentan en el total hasta que se confirmen.`
+      : '';
+  }, err=>{
+    document.getElementById('statPendingNote').textContent = 'No se pudo conectar con la base de datos de pedidos.';
   });
 }
-document.getElementById('resetStats').addEventListener('click', ()=>{
-  stats = {visits:0, searches:0, chats:0, terms:{}};
-  saveStats(stats);
-  renderAdminReports();
-});
 
 /* --- Tabs switching --- */
 document.querySelectorAll('.tabbtn').forEach(btn=>{

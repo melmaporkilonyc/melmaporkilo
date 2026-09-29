@@ -1639,6 +1639,13 @@ function renderAdminPrices(){
           <span class="fieldlbl">Descripción (opcional)</span>
           <input type="text" class="subInput" data-id="${it.id}" value="${(it.sub||'').replace(/"/g,'&quot;')}" placeholder="Sin descripción" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--text);font-size:13.5px;">
         </div>
+        <div>
+          <span class="fieldlbl">Foto del plato</span>
+          <div class="photorow">
+            <img class="preview" id="itemPhotoPreview-${it.id}" src="${itemImg(it.id)||''}" alt="" style="${itemImg(it.id)?'':'display:none;'}">
+            <input type="file" accept="image/*" class="itemPhotoInput" data-id="${it.id}">
+          </div>
+        </div>
         <div style="display:flex;gap:12px;">
           <div style="flex:1;"><span class="fieldlbl">Precio</span><input type="number" step="0.5" min="0" class="priceInput" data-id="${it.id}" value="${price}"></div>
           <div style="flex:1;"><span class="fieldlbl">Disponibles hoy</span><input type="number" step="1" min="0" class="stockinput stockInput" data-id="${it.id}" placeholder="Sin límite" value="${stock===null?'':stock}"></div>
@@ -1670,6 +1677,16 @@ function renderAdminPrices(){
       }catch(e){ alert('No se pudo eliminar, revisa la conexión.'); }
     });
   });
+  wrap.querySelectorAll('.itemPhotoInput').forEach(inp=>{
+    inp.addEventListener('change', ()=>{
+      const file = inp.files && inp.files[0];
+      const prev = document.getElementById('itemPhotoPreview-'+inp.dataset.id);
+      if(!file || !prev) return;
+      const reader = new FileReader();
+      reader.onload = ()=>{ prev.src = reader.result; prev.style.display='block'; };
+      reader.readAsDataURL(file);
+    });
+  });
   const catList = document.getElementById('catOptions');
   if(catList) catList.innerHTML = currentMenuSections().map(s=>`<option value="${s.cat}">`).join('');
 }
@@ -1681,6 +1698,7 @@ document.getElementById('savePrices').addEventListener('click', async ()=>{
   const subInputs = document.querySelectorAll('#priceList .subInput');
   const variantsInputs = document.querySelectorAll('#priceList .variantsInput');
   const checksInputs = document.querySelectorAll('#priceList .checksInput');
+  const photoInputs = document.querySelectorAll('#priceList .itemPhotoInput');
   const newOverrides = {...loadPricesCache()};
   priceInputs.forEach(inp=>{
     const v = parseFloat(inp.value);
@@ -1691,7 +1709,17 @@ document.getElementById('savePrices').addEventListener('click', async ()=>{
     const raw = inp.value.trim();
     newStock[inp.dataset.id] = raw==='' ? null : Math.max(0, parseInt(raw,10));
   });
-  btn.disabled = true;
+  btn.disabled = true; btn.textContent = 'Guardando...';
+  // Comprime cualquier foto nueva seleccionada antes de guardar (evita que una
+  // foto pesada de la cámara del celular trabe el guardado en Firestore).
+  const newPhotos = {};
+  const filesToCompress = Array.from(photoInputs).filter(inp=>inp.files && inp.files[0]);
+  if(filesToCompress.length) btn.textContent = 'Comprimiendo fotos...';
+  for(const inp of filesToCompress){
+    const dataUrl = await readPhotoCompressed(inp, 640);
+    if(dataUrl) newPhotos[inp.dataset.id] = dataUrl;
+  }
+  btn.textContent = 'Guardando...';
   try{
     if(CONFIG_PRECIOS){
       await CONFIG_PRECIOS.set({overrides:newOverrides}, {merge:false});
@@ -1708,7 +1736,9 @@ document.getElementById('savePrices').addEventListener('click', async ()=>{
         const variants = varInp ? varInp.value.split(',').map(s=>s.trim()).filter(Boolean) : [];
         const checkInp = Array.from(checksInputs).find(v=>v.dataset.id===id);
         const checks = checkInp ? checkInp.value.split(',').map(s=>s.trim()).filter(Boolean) : [];
-        if(n) batch.set(MENU_ITEMS_COL.doc(id), {n, sub: sub?sub.value.trim():'', variants, checks}, {merge:true});
+        const fields = {n, sub: sub?sub.value.trim():'', variants, checks};
+        if(newPhotos[id]) fields.photo = newPhotos[id];
+        if(n) batch.set(MENU_ITEMS_COL.doc(id), fields, {merge:true});
       });
       Object.entries(newStock).forEach(([id,val])=>{ batch.set(INVENTARIO_COL.doc(id), {stock:val}); });
       await batch.commit();
@@ -1721,7 +1751,7 @@ document.getElementById('savePrices').addEventListener('click', async ()=>{
     stockMap = {...stockMap, ...newStock}; saveStockCache(stockMap);
     renderMenu();
   }
-  btn.disabled = false;
+  btn.disabled = false; btn.textContent = 'Guardar cambios';
   const s=document.getElementById('pricesSaved'); s.style.display='block';
   setTimeout(()=>s.style.display='none', 2000);
 });

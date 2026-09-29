@@ -465,10 +465,13 @@ footer b{color:var(--gold2);}
       <datalist id="catOptions"></datalist>
       <input id="newItemName" type="text" placeholder="Nombre del plato" style="width:100%;margin-bottom:8px;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:14px;">
       <input id="newItemSub" type="text" placeholder="Descripción (opcional)" style="width:100%;margin-bottom:8px;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:14px;">
-      <input id="newItemPrice" type="number" step="0.5" min="0" placeholder="Precio" style="width:100%;margin-bottom:10px;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:14px;">
+      <input id="newItemPrice" type="number" step="0.5" min="0" placeholder="Precio" style="width:100%;margin-bottom:8px;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:14px;">
+      <input id="newItemVariants" type="text" placeholder="Opción única que elige el cliente, ej. base: Plátano, Papa, Yuca, Mangú — opcional" style="width:100%;margin-bottom:8px;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:14px;">
+      <input id="newItemChecks" type="text" placeholder="Ingredientes que el cliente puede quitar, ej. Cebolla, Tomate, Mayo — opcional" style="width:100%;margin-bottom:10px;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:14px;">
       <div class="photorow"><img class="preview" id="newItemPhotoPreview" alt=""><input id="newItemPhoto" type="file" accept="image/*"></div>
       <button class="btn" id="addItemBtn">Agregar producto</button>
       <div class="saved" id="itemSaved">Producto agregado ✓</div>
+      <p class="sub" style="margin-top:10px;">Aquí arriba, en cada producto ya existente, también puedes cambiar su nombre, descripción, precio, cantidad disponible, opciones o ingredientes, o eliminarlo por completo.</p>
     </div>
 
     <div class="tabpane" id="tabPromos">
@@ -501,7 +504,7 @@ footer b{color:var(--gold2);}
       <button class="btn secondary" id="resetStats" style="margin-top:14px;">Reiniciar reporte</button>
     </div>
 
-    <button class="btn secondary" id="logoutBtn" style="margin-top:18px;">Cerrar sesión</button>
+    <button class="btn secondary" id="logoutBtn" style="margin-top:18px;font-weight:800;">Cerrar sesión</button>
   </div>
 </div>
 
@@ -548,7 +551,7 @@ const firebaseConfig = {
   appId: "1:647564856840:web:861a9765c77ea4b03e8bbd",
   measurementId: "G-LPTZ4ZDPKM"
 };
-let db = null, PEDIDOS = null, CONFIG_ESTADO = null, CONFIG_PRECIOS = null, PROMOS_COL = null, CUSTOM_COL = null, INVENTARIO_COL = null, CONFIG_PASSWORDS = null;
+let db = null, PEDIDOS = null, CONFIG_ESTADO = null, CONFIG_PRECIOS = null, PROMOS_COL = null, CUSTOM_COL = null, INVENTARIO_COL = null, CONFIG_PASSWORDS = null, MENU_ITEMS_COL = null;
 try{
   if(typeof firebase !== 'undefined'){
     firebase.initializeApp(firebaseConfig);
@@ -560,6 +563,7 @@ try{
     CUSTOM_COL = db.collection('custom_items');
     INVENTARIO_COL = db.collection('inventario');
     CONFIG_PASSWORDS = db.collection('config').doc('passwords');
+    MENU_ITEMS_COL = db.collection('menu_items');
   }
 }catch(e){ console.error('No se pudo conectar Firebase:', e); }
 
@@ -575,22 +579,25 @@ const CIMG = {
 };
 
 /* ================= MENU DATA ================= */
+const YAROA_BASES = ["Plátano maduro","Papa frita","Yuca","Mangú"];
+const CHIMI_INGREDIENTES = ["Cebolla","Tomate","Repollo","Ketchup","Mayo"];
+const ALITAS_SALSAS = ["Guanábana","Chinola","Tamarindo","BBQ","Búfalo"];
 const MENU = [
-  {cat:"Yaroas", note:"Base de plátano maduro o papas fritas", items:[
-    {id:"y1",n:"Yaroa de Marisco",p:35,imgKey:"yaroa_marisco"},
-    {id:"y2",n:"Yaroa de Pulpo",p:50},
-    {id:"y3",n:"Yaroa Mar & Tierra",p:50},
-    {id:"y4",n:"Yaroa de Pollo",p:20},
-    {id:"y5",n:"Yaroa de Pierna",p:20},
-    {id:"y6",n:"Yaroa de Res",p:25},
-    {id:"y7",n:"Yaroa de Churrasco",p:35},
+  {cat:"Yaroas", note:"Elige la base: plátano maduro, papa frita, yuca o mangú", items:[
+    {id:"y1",n:"Yaroa de Marisco",p:35,imgKey:"yaroa_marisco",variants:YAROA_BASES},
+    {id:"y2",n:"Yaroa de Pulpo",p:50,variants:YAROA_BASES},
+    {id:"y3",n:"Yaroa Mar & Tierra",p:50,variants:YAROA_BASES},
+    {id:"y4",n:"Yaroa de Pollo",p:20,variants:YAROA_BASES},
+    {id:"y5",n:"Yaroa de Pierna",p:20,variants:YAROA_BASES},
+    {id:"y6",n:"Yaroa de Res",p:25,variants:YAROA_BASES},
+    {id:"y7",n:"Yaroa de Churrasco",p:35,variants:YAROA_BASES},
   ]},
-  {cat:"Chimis", note:"Con cebolla, tomate, repollo, ketchup y mayo", items:[
-    {id:"c1",n:"Chimi de Pollo",p:15},
-    {id:"c2",n:"Chimi de Res",p:15},
-    {id:"c3",n:"Chimi de Pierna",p:20},
-    {id:"c4",n:"Chimi de los 3 Golpes",p:20},
-    {id:"c5",n:"Chimi al Pastor",p:20},
+  {cat:"Chimis", note:"Quita los ingredientes que no quieras", items:[
+    {id:"c1",n:"Chimi de Pollo",p:15,checks:CHIMI_INGREDIENTES},
+    {id:"c2",n:"Chimi de Res",p:15,checks:CHIMI_INGREDIENTES},
+    {id:"c3",n:"Chimi de Pierna",p:20,checks:CHIMI_INGREDIENTES},
+    {id:"c4",n:"Chimi de los 3 Golpes",p:20,checks:CHIMI_INGREDIENTES},
+    {id:"c5",n:"Chimi al Pastor",p:20,checks:CHIMI_INGREDIENTES},
   ]},
   {cat:"Burgers", note:"", items:[
     {id:"b1",n:"Melma Burger",sub:"$20 doble carne",p:15,imgKey:"bacon_burger"},
@@ -604,8 +611,8 @@ const MENU = [
     {id:"e5",n:"Quipe Pollo",p:3},
     {id:"e6",n:"Quipe Res",p:3},
   ]},
-  {cat:"Alitas", note:"Mango, guanábana, chinola o BBQ", items:[
-    {id:"a1",n:"6 unidades con papas",p:15},
+  {cat:"Alitas", note:"Elige tu salsa", items:[
+    {id:"a1",n:"6 unidades con papas",p:15,variants:ALITAS_SALSAS},
   ]},
   {cat:"Hot Dog", note:"", items:[
     {id:"h1",n:"Hot Dog Dominicano",p:15},
@@ -621,12 +628,93 @@ const MENU = [
     {id:"q3",n:"Quesadilla Cerdo",p:15},
   ]},
   {cat:"Bebidas", note:"", items:[
-    {id:"d1",n:"Jugos",sub:"Tamarindo, chinola, guanábana, mango, piña",p:10,imgKey:"limeade"},
+    {id:"d1a",n:"Jugo de Tamarindo",p:10,imgKey:"limeade"},
+    {id:"d1b",n:"Jugo de Chinola",p:10},
+    {id:"d1c",n:"Jugo de Guanábana",p:10},
+    {id:"d1d",n:"Jugo de Mango",p:10},
+    {id:"d1e",n:"Jugo de Piña",p:10},
     {id:"d2",n:"Sodas",sub:"Pepsi, Sprite, Fanta, Coca-Cola",p:1.5},
     {id:"d3",n:"Agua",p:1},
     {id:"d4",n:"Country Club Frambuesa / Merengue",p:3},
   ]},
 ];
+
+/* ================= MENÚ EDITABLE (dueño controla TODO el inventario) =================
+   menu_items en Firestore es ahora la única fuente de verdad del menú completo:
+   el dueño puede agregar, editar o eliminar cualquier plato de cualquier categoría
+   desde el panel (no solo "productos personalizados" como antes). El array MENU de
+   arriba solo sirve como semilla la primera vez que corre esto, y como respaldo
+   instantáneo mientras llega el primer snapshot de Firestore. */
+const CATEGORY_NOTES = {};
+MENU.forEach(s=>{ if(s.note) CATEGORY_NOTES[s.cat] = s.note; });
+function flattenStaticMenu(){
+  const out=[];
+  MENU.forEach(s=>s.items.forEach(it=>out.push({...it, cat:s.cat, variants:it.variants||[], checks:it.checks||[]})));
+  return out;
+}
+let menuItemsList = [];
+let menuItemsLoaded = false;
+async function ensureMenuSeeded(){
+  if(!db) return;
+  try{
+    const flagRef = db.collection('config').doc('menu_seeded');
+    const flagSnap = await flagRef.get();
+    if(flagSnap.exists) return;
+    await flagRef.set({done:true, at: Date.now()});
+    const batch = db.batch();
+    let order = 0;
+    MENU.forEach(section=>{
+      section.items.forEach(it=>{
+        batch.set(MENU_ITEMS_COL.doc(it.id), {cat:section.cat, n:it.n, sub:it.sub||'', p:it.p, imgKey:it.imgKey||'', photo:'', variants:it.variants||[], checks:it.checks||[], order:order++});
+      });
+    });
+    try{
+      if(CUSTOM_COL){
+        const customSnap = await CUSTOM_COL.get();
+        customSnap.forEach(doc=>{
+          const ci = doc.data();
+          batch.set(MENU_ITEMS_COL.doc(doc.id), {cat:ci.cat, n:ci.n, sub:ci.sub||'', p:ci.p, imgKey:'', photo:ci.photo||'', variants:[], checks:[], order:order++});
+        });
+      }
+    }catch(e){}
+    await batch.commit();
+  }catch(e){ console.error('No se pudo migrar el menú:', e); }
+}
+ensureMenuSeeded();
+/* ---- migración v2: agrega las bases de Yaroa, salsas de Alitas e
+   ingredientes de Chimi a un menú que ya estaba corriendo en producción
+   (ensureMenuSeeded ya corrió antes, así que hace falta este segundo paso
+   con su propia bandera para no perder ediciones que el dueño ya hizo). ---- */
+async function ensureMenuMigrationV2(){
+  if(!db) return;
+  try{
+    const flagRef = db.collection('config').doc('menu_migration_v2');
+    const flagSnap = await flagRef.get();
+    if(flagSnap.exists) return;
+    await flagRef.set({done:true, at: Date.now()});
+    const batch = db.batch();
+    ["y1","y2","y3","y4","y5","y6","y7"].forEach(id=>{
+      batch.set(MENU_ITEMS_COL.doc(id), {variants: YAROA_BASES}, {merge:true});
+    });
+    batch.set(MENU_ITEMS_COL.doc('a1'), {variants: ALITAS_SALSAS}, {merge:true});
+    ["c1","c2","c3","c4","c5"].forEach(id=>{
+      batch.set(MENU_ITEMS_COL.doc(id), {checks: CHIMI_INGREDIENTES}, {merge:true});
+    });
+    await batch.commit();
+  }catch(e){ console.error('No se pudo aplicar la migración v2 del menú:', e); }
+}
+ensureMenuMigrationV2();
+function currentMenuFlat(){ return menuItemsLoaded ? menuItemsList : flattenStaticMenu(); }
+function currentMenuSections(){
+  const list = currentMenuFlat().slice().sort((a,b)=>(a.order||0)-(b.order||0));
+  const map = new Map();
+  list.forEach(it=>{
+    if(!map.has(it.cat)) map.set(it.cat, []);
+    map.get(it.cat).push(it);
+  });
+  return Array.from(map.entries()).map(([cat,items])=>({cat, note:CATEGORY_NOTES[cat]||'', items}));
+}
+
 const DEFAULT_ADMIN_PASS = "7738";
 const DEFAULT_REP_PASS = "4577";
 
@@ -695,17 +783,6 @@ if(!ADMIN_MODE){
 }
 function loadPromos(){ return promosList; }
 function loadCustomItems(){ return customList; }
-function mergeCustomIntoMenu(){
-  // Remove previously-merged custom items, then re-add from the live list (keeps this idempotent).
-  MENU.forEach(s=>{ s.items = s.items.filter(it=>!it.custom); });
-  for(let i=MENU.length-1;i>=0;i--){ if(MENU[i].custom && MENU[i].items.length===0){ MENU.splice(i,1); } }
-  customList.forEach(ci=>{
-    let sec = MENU.find(s=>s.cat.toLowerCase()===ci.cat.toLowerCase());
-    if(!sec){ sec = {cat:ci.cat, note:"", items:[], custom:true}; MENU.push(sec); }
-    sec.items.push({id:ci.id, n:ci.n, sub:ci.sub||undefined, p:ci.p, photo:ci.photo||undefined, custom:true});
-  });
-}
-mergeCustomIntoMenu();
 
 /* ---- Firestore realtime sync: every device (client or admin) watches the
    same collections, so a change from the admin panel shows up everywhere
@@ -746,13 +823,12 @@ function watchConfig(){
       if(ADMIN_MODE) renderAdminPromos();
     }, ()=>{});
   }
-  if(CUSTOM_COL){
-    CUSTOM_COL.onSnapshot(snap=>{
+  if(MENU_ITEMS_COL){
+    MENU_ITEMS_COL.onSnapshot(snap=>{
       const list = [];
-      snap.forEach(d=>list.push({id:d.id, ...d.data()}));
-      customList = list;
-      saveCustomCache(customList);
-      mergeCustomIntoMenu();
+      snap.forEach(d=>list.push({id:d.id, variants:[], checks:[], ...d.data()}));
+      menuItemsList = list;
+      menuItemsLoaded = true;
       renderMenu();
       if(ADMIN_MODE) renderAdminPrices();
     }, ()=>{});
@@ -781,13 +857,24 @@ function catId(name){ return "cat-"+name.toLowerCase().replace(/[^a-z0-9]+/g,"-"
 
 /* ================= CART ================= */
 let cart = {}; // id -> qty
+let cartVariant = {}; // id -> selected variant label (when the item has variants)
+let cartChecks = {}; // id -> {ingredientName: true/false} (when the item has checks/ingredientes)
+function orderSuffix(it){
+  const parts = [];
+  if(cartVariant[it.id]) parts.push(cartVariant[it.id]);
+  if(it.checks && it.checks.length){
+    const st = cartChecks[it.id] || {};
+    const removed = it.checks.filter(c=>st[c]===false);
+    if(removed.length) parts.push('sin '+removed.join(', sin '));
+  }
+  return parts.length ? (' — '+parts.join(', ')) : '';
+}
 function itemById(id){
   if(typeof id==='string' && id.indexOf('promo_')===0){
     const p = loadPromos().find(x=>x.id===id);
     return p ? {id:p.id, n:p.name, sub:p.desc, p:p.price, photo:p.photo} : null;
   }
-  for(const s of MENU){ for(const it of s.items){ if(it.id===id) return it; } }
-  return null;
+  return currentMenuFlat().find(it=>it.id===id) || null;
 }
 function itemImg(id){
   const it = itemById(id);
@@ -839,7 +926,22 @@ function itemRowHtml(it, idForStock){
       ? `<div class="stockflag out">Agotado</div>`
       : `<div class="stockflag ${stock<=5?'low':''}">Quedan ${stock}</div>`;
   }
-  return `<div class="item"><div class="left">${thumb}<div class="n">${it.n}${it.sub?`<small>${it.sub}</small>`:''}${stockFlag}</div></div><div class="right"><div class="p">${fmt(price)}</div>${control}</div></div>`;
+  let variantSel = '';
+  if(it.variants && it.variants.length){
+    if(!cartVariant[it.id] || it.variants.indexOf(cartVariant[it.id])===-1) cartVariant[it.id] = it.variants[0];
+    const opts = it.variants.map(v=>`<option value="${v}" ${cartVariant[it.id]===v?'selected':''}>${v}</option>`).join('');
+    variantSel = `<select class="variantsel" data-variant-id="${it.id}" style="margin-top:4px;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:12px;">${opts}</select>`;
+  }
+  let checksRow = '';
+  if(it.checks && it.checks.length){
+    if(!cartChecks[it.id]) cartChecks[it.id] = {};
+    const boxes = it.checks.map(c=>{
+      const checked = cartChecks[it.id][c]!==false;
+      return `<label style="margin-right:10px;font-size:12px;white-space:nowrap;"><input type="checkbox" class="checkopt" data-check-id="${it.id}" data-check-name="${c}" ${checked?'checked':''}> ${c}</label>`;
+    }).join('');
+    checksRow = `<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 0;">${boxes}</div>`;
+  }
+  return `<div class="item"><div class="left">${thumb}<div class="n">${it.n}${it.sub?`<small>${it.sub}</small>`:''}${stockFlag}${variantSel?`<div>${variantSel}</div>`:''}${checksRow}</div></div><div class="right"><div class="p">${fmt(price)}</div>${control}</div></div>`;
 }
 function renderMenu(){
   const main = document.getElementById('menuMain');
@@ -867,7 +969,7 @@ function renderMenu(){
     nav.insertBefore(promoChip, nav.firstChild);
   }
 
-  MENU.forEach(section=>{
+  currentMenuSections().forEach(section=>{
     const sec = document.createElement('section');
     sec.className='menusection'; sec.id=catId(section.cat);
     let rowsHtml = section.items.map(it=>itemRowHtml(it)).join('');
@@ -890,13 +992,27 @@ function renderMenu(){
       else if(act==='dec') setQty(id, cur-1);
     });
   });
+  main.querySelectorAll('.variantsel').forEach(sel=>{
+    sel.addEventListener('change', ()=>{
+      cartVariant[sel.dataset.variantId] = sel.value;
+    });
+    sel.addEventListener('click', (e)=>e.stopPropagation());
+  });
+  main.querySelectorAll('.checkopt').forEach(box=>{
+    box.addEventListener('change', ()=>{
+      const id = box.dataset.checkId;
+      if(!cartChecks[id]) cartChecks[id] = {};
+      cartChecks[id][box.dataset.checkName] = box.checked;
+    });
+    box.addEventListener('click', (e)=>e.stopPropagation());
+  });
 }
 renderMenu();
 
 /* ---- highlight active category on scroll ---- */
 const navBtns = ()=>Array.from(document.querySelectorAll('#catsNav button'));
 window.addEventListener('scroll', ()=>{
-  const secs = MENU.map(s=>document.getElementById(catId(s.cat)));
+  const secs = currentMenuSections().map(s=>document.getElementById(catId(s.cat))).filter(Boolean);
   let idx = 0;
   secs.forEach((s,i)=>{ if(s.getBoundingClientRect().top - 180 <= 0) idx = i; });
   navBtns().forEach((b,i)=>b.classList.toggle('active', i===idx));
@@ -913,9 +1029,7 @@ renderStatus();
 
 /* ================= SEARCH ================= */
 function allItemsFlat(){
-  const out=[];
-  MENU.forEach(s=>s.items.forEach(it=>out.push({...it, cat:s.cat})));
-  return out;
+  return currentMenuFlat();
 }
 const searchInput = document.getElementById('search');
 const clearBtn = document.getElementById('clearSearch');
@@ -1010,7 +1124,8 @@ function renderCartPanel(){
     wrap.innerHTML = ids.map(id=>{
       const it = itemById(id); const qty = cart[id]; const img = itemImg(id);
       const thumb = img ? `<img class="thumb" src="${img}" alt="${it.n}">` : '';
-      return `<div class="cartrow"><div style="display:flex;align-items:center;gap:10px;">${thumb}<div><div class="n">${it.n}</div><div class="sub" style="color:var(--muted);font-size:12px;">${qty} x ${fmt(effectivePrice(it))}</div></div></div>
+      const nm = it.n + orderSuffix(it);
+      return `<div class="cartrow"><div style="display:flex;align-items:center;gap:10px;">${thumb}<div><div class="n">${nm}</div><div class="sub" style="color:var(--muted);font-size:12px;">${qty} x ${fmt(effectivePrice(it))}</div></div></div>
         <div class="qtybox"><button data-act="dec" data-id="${id}">−</button><span>${qty}</span><button data-act="inc" data-id="${id}">+</button></div></div>`;
     }).join('');
     wrap.querySelectorAll('[data-act]').forEach(btn=>{
@@ -1049,14 +1164,14 @@ document.getElementById('confirmOrder').addEventListener('click', async ()=>{
       return;
     }
   }
-  const items = ids.map(id=>{ const it=itemById(id); return {id, n:it.n, qty:cart[id], price:effectivePrice(it)}; });
+  const items = ids.map(id=>{ const it=itemById(id); const nm = it.n + orderSuffix(it); return {id, n:nm, qty:cart[id], price:effectivePrice(it)}; });
   const total = cartTotal();
   const btn = document.getElementById('confirmOrder');
   btn.disabled = true; btn.textContent = 'Enviando pedido...';
   try{
     const code = await createOrder(items, total, orderMeta);
     currentOrderCode = code;
-    cart = {}; renderCartFab(); renderMenu();
+    cart = {}; cartVariant = {}; cartChecks = {}; renderCartFab(); renderMenu();
     cartOverlay.classList.remove('show');
     showOrderWaiting(code, items, total, orderMeta);
   } catch(e){
@@ -1484,27 +1599,52 @@ document.getElementById('changeRepPassBtn').addEventListener('click', async ()=>
 function renderAdminPrices(){
   const wrap = document.getElementById('priceList');
   wrap.innerHTML='';
-  MENU.forEach(section=>{
+  currentMenuSections().forEach(section=>{
     const h=document.createElement('div'); h.className='cathead'; h.textContent=section.cat;
     wrap.appendChild(h);
     section.items.forEach(it=>{
       const row=document.createElement('div'); row.className='priceedit';
       const price = effectivePrice(it);
       const stock = stockOf(it.id);
-      row.innerHTML = `<div>${it.n}</div><div class="fields">
-        <div><div class="lbl2">Precio</div><input type="number" step="0.5" min="0" class="priceInput" data-id="${it.id}" value="${price}"></div>
-        <div><div class="lbl2">Disponibles</div><input type="number" step="1" min="0" class="stockinput stockInput" data-id="${it.id}" placeholder="∞" value="${stock===null?'':stock}"></div>
+      row.innerHTML = `<div class="fields" style="width:100%;display:flex;flex-direction:column;gap:6px;">
+        <input type="text" class="nameInput" data-id="${it.id}" value="${(it.n||'').replace(/"/g,'&quot;')}" placeholder="Nombre del plato" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:14px;font-weight:700;">
+        <input type="text" class="subInput" data-id="${it.id}" value="${(it.sub||'').replace(/"/g,'&quot;')}" placeholder="Descripción (opcional)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:13px;">
+        <div style="display:flex;gap:8px;">
+          <div style="flex:1;"><div class="lbl2">Precio</div><input type="number" step="0.5" min="0" class="priceInput" data-id="${it.id}" value="${price}"></div>
+          <div style="flex:1;"><div class="lbl2">Disponibles</div><input type="number" step="1" min="0" class="stockinput stockInput" data-id="${it.id}" placeholder="∞" value="${stock===null?'':stock}"></div>
+        </div>
+        <input type="text" class="variantsInput" data-id="${it.id}" value="${(it.variants||[]).join(', ')}" placeholder="Opción única que elige el cliente, ej. base: Plátano, Papa, Yuca, Mangú — opcional" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:13px;">
+        <input type="text" class="checksInput" data-id="${it.id}" value="${(it.checks||[]).join(', ')}" placeholder="Ingredientes que el cliente puede quitar, ej. Cebolla, Tomate, Mayo — opcional" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:13px;">
+        <button class="btn secondary deleteItemBtn" data-id="${it.id}" data-name="${(it.n||'').replace(/"/g,'&quot;')}" style="align-self:flex-start;padding:6px 14px;font-size:13px;">Eliminar producto</button>
       </div>`;
       wrap.appendChild(row);
     });
   });
+  wrap.querySelectorAll('.deleteItemBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm(`¿Eliminar "${btn.dataset.name}" del menú? Esto no se puede deshacer.`)) return;
+      const id = btn.dataset.id;
+      try{
+        if(MENU_ITEMS_COL) await MENU_ITEMS_COL.doc(id).delete();
+        if(INVENTARIO_COL) INVENTARIO_COL.doc(id).delete().catch(()=>{});
+        if(!MENU_ITEMS_COL){
+          menuItemsList = menuItemsList.filter(x=>x.id!==id);
+          renderAdminPrices(); renderMenu();
+        }
+      }catch(e){ alert('No se pudo eliminar, revisa la conexión.'); }
+    });
+  });
   const catList = document.getElementById('catOptions');
-  if(catList) catList.innerHTML = MENU.map(s=>`<option value="${s.cat}">`).join('');
+  if(catList) catList.innerHTML = currentMenuSections().map(s=>`<option value="${s.cat}">`).join('');
 }
 document.getElementById('savePrices').addEventListener('click', async ()=>{
   const btn = document.getElementById('savePrices');
   const priceInputs = document.querySelectorAll('#priceList .priceInput');
   const stockInputs = document.querySelectorAll('#priceList .stockInput');
+  const nameInputs = document.querySelectorAll('#priceList .nameInput');
+  const subInputs = document.querySelectorAll('#priceList .subInput');
+  const variantsInputs = document.querySelectorAll('#priceList .variantsInput');
+  const checksInputs = document.querySelectorAll('#priceList .checksInput');
   const newOverrides = {...loadPricesCache()};
   priceInputs.forEach(inp=>{
     const v = parseFloat(inp.value);
@@ -1522,8 +1662,18 @@ document.getElementById('savePrices').addEventListener('click', async ()=>{
     } else {
       overrides = newOverrides; savePricesCache(overrides); renderMenu();
     }
-    if(INVENTARIO_COL){
+    if(MENU_ITEMS_COL){
       const batch = db.batch();
+      nameInputs.forEach(inp=>{
+        const id = inp.dataset.id;
+        const n = inp.value.trim();
+        const sub = Array.from(subInputs).find(s=>s.dataset.id===id);
+        const varInp = Array.from(variantsInputs).find(v=>v.dataset.id===id);
+        const variants = varInp ? varInp.value.split(',').map(s=>s.trim()).filter(Boolean) : [];
+        const checkInp = Array.from(checksInputs).find(v=>v.dataset.id===id);
+        const checks = checkInp ? checkInp.value.split(',').map(s=>s.trim()).filter(Boolean) : [];
+        if(n) batch.set(MENU_ITEMS_COL.doc(id), {n, sub: sub?sub.value.trim():'', variants, checks}, {merge:true});
+      });
       Object.entries(newStock).forEach(([id,val])=>{ batch.set(INVENTARIO_COL.doc(id), {stock:val}); });
       await batch.commit();
     } else {
@@ -1578,32 +1728,36 @@ function wirePhotoPreview(inputId, previewId){
 wirePhotoPreview('newItemPhoto','newItemPhotoPreview');
 wirePhotoPreview('promoPhoto','promoPhotoPreview');
 
-/* --- Agregar producto nuevo --- */
+/* --- Agregar producto nuevo (a cualquier categoría, con opciones/variantes) --- */
 document.getElementById('addItemBtn').addEventListener('click', async ()=>{
   const cat = document.getElementById('newItemCat').value.trim();
   const n = document.getElementById('newItemName').value.trim();
   const sub = document.getElementById('newItemSub').value.trim();
   const p = parseFloat(document.getElementById('newItemPrice').value);
+  const variantsRaw = document.getElementById('newItemVariants') ? document.getElementById('newItemVariants').value : '';
+  const variants = variantsRaw.split(',').map(s=>s.trim()).filter(Boolean);
+  const checksRaw = document.getElementById('newItemChecks') ? document.getElementById('newItemChecks').value : '';
+  const checks = checksRaw.split(',').map(s=>s.trim()).filter(Boolean);
   if(!cat || !n || isNaN(p)) return;
   const btn = document.getElementById('addItemBtn');
   btn.disabled = true; btn.textContent = 'Agregando...';
   const photo = await readPhotoCompressed(document.getElementById('newItemPhoto'), 640);
   const id = 'custom_' + Date.now();
-  const item = {cat, n, sub, p, photo: photo||null};
+  const item = {cat, n, sub, p, photo: photo||'', imgKey:'', variants, checks, order: Date.now()};
   try{
-    if(CUSTOM_COL){
-      await CUSTOM_COL.doc(id).set(item);
+    if(MENU_ITEMS_COL){
+      await MENU_ITEMS_COL.doc(id).set(item);
     } else {
-      const customs = loadCustomCache();
-      customs.push({id, ...item});
-      customList = customs; saveCustomCache(customs);
-      mergeCustomIntoMenu(); renderAdminPrices(); renderMenu();
+      menuItemsList = [...menuItemsList, {id, ...item}];
+      renderAdminPrices(); renderMenu();
     }
   } catch(e){ alert('No se pudo guardar el producto, revisa la conexión.'); }
   document.getElementById('newItemCat').value='';
   document.getElementById('newItemName').value='';
   document.getElementById('newItemSub').value='';
   document.getElementById('newItemPrice').value='';
+  if(document.getElementById('newItemVariants')) document.getElementById('newItemVariants').value='';
+  if(document.getElementById('newItemChecks')) document.getElementById('newItemChecks').value='';
   document.getElementById('newItemPhoto').value='';
   document.getElementById('newItemPhotoPreview').style.display='none';
   btn.disabled = false; btn.textContent = 'Agregar producto';

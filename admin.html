@@ -1772,7 +1772,10 @@ function renderAdminPrices(){
           if(it) it.photo='';
           renderMenu();
         }
-      }catch(e){ alert('No se pudo quitar la foto, revisa la conexión.'); }
+      }catch(e){
+        const detalle = (e && (e.code || e.message)) ? (e.code||'') + (e.message?(' — '+e.message):'') : 'error desconocido';
+        alert('No se pudo quitar la foto (revisa la conexión).\n\nDetalle técnico: ' + detalle);
+      }
     });
   });
   const catList = document.getElementById('catOptions');
@@ -1808,9 +1811,19 @@ document.getElementById('savePrices').addEventListener('click', async ()=>{
     if(dataUrl) newPhotos[inp.dataset.id] = dataUrl;
   }
   btn.textContent = 'Guardando...';
+  // Reintenta una vez automáticamente si falla por un corte breve de señal
+  // (común en datos móviles), antes de rendirse y avisar al usuario.
+  async function withRetry(fn, label){
+    try{ await fn(); }
+    catch(e1){
+      console.warn('Fallo al '+label+', reintentando en 1.5s...', e1);
+      await new Promise(r=>setTimeout(r,1500));
+      await fn(); // si esto también falla, el error sube al catch de afuera
+    }
+  }
   try{
     if(CONFIG_PRECIOS){
-      await CONFIG_PRECIOS.set({overrides:newOverrides}, {merge:false});
+      await withRetry(()=>CONFIG_PRECIOS.set({overrides:newOverrides}, {merge:false}), 'guardar precios');
     } else {
       overrides = newOverrides; savePricesCache(overrides); renderMenu();
     }
@@ -1829,12 +1842,13 @@ document.getElementById('savePrices').addEventListener('click', async ()=>{
         if(n) batch.set(MENU_ITEMS_COL.doc(id), fields, {merge:true});
       });
       Object.entries(newStock).forEach(([id,val])=>{ batch.set(INVENTARIO_COL.doc(id), {stock:val}); });
-      await batch.commit();
+      await withRetry(()=>batch.commit(), 'guardar productos');
     } else {
       stockMap = {...stockMap, ...newStock}; saveStockCache(stockMap); renderMenu();
     }
   } catch(e){
-    alert('No se pudo guardar (revisa la conexión). Se guardó localmente en este dispositivo.');
+    const detalle = (e && (e.code || e.message)) ? (e.code||'') + (e.message?(' — '+e.message):'') : 'error desconocido';
+    alert('No se pudo guardar (revisa la conexión a internet e inténtalo otra vez).\nSe guardó localmente en este dispositivo mientras tanto.\n\nDetalle técnico: ' + detalle);
     overrides = newOverrides; savePricesCache(overrides);
     stockMap = {...stockMap, ...newStock}; saveStockCache(stockMap);
     renderMenu();

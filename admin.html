@@ -144,6 +144,19 @@ main{max-width:760px;margin:0 auto;padding:10px 16px 60px;}
 .qtybox button{width:26px;height:26px;border-radius:50%;border:1px solid var(--gold);background:var(--card2);
   color:var(--gold2);font-size:15px;font-weight:700;cursor:pointer;line-height:1;}
 .qtybox span{min-width:14px;text-align:center;font-weight:700;}
+.editoptbtn{width:26px;height:26px;border-radius:50%;border:1px solid var(--line);background:var(--card2);
+  color:var(--muted);font-size:13px;cursor:pointer;line-height:1;margin-right:2px;}
+.optstag{font-size:10.5px;color:var(--gold2);opacity:.85;margin-top:2px;letter-spacing:.3px;}
+
+/* ---- Modal de personalización (variantes / ingredientes) ---- */
+.optgroup{margin-bottom:18px;}
+.optgroup:last-child{margin-bottom:0;}
+.optgroup .grouptitle{color:var(--gold2);font-size:12.5px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.6px;margin-bottom:8px;}
+.optrow{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:10px;
+  border:1px solid var(--line);background:var(--bg2);margin-bottom:8px;font-size:14.5px;cursor:pointer;}
+.optrow:hover{border-color:var(--gold);}
+.optrow input{flex:none;width:17px;height:17px;accent-color:var(--gold);}
 
 /* ---- Cart FAB & panel ---- */
 .cartfab{position:fixed;bottom:22px;left:18px;z-index:60;background:var(--gold);color:#1a1400;
@@ -407,6 +420,17 @@ footer b{color:var(--gold2);}
   <div class="modalbox" id="orderModalBox">
     <button class="closex" id="closeOrder">✕</button>
     <div id="orderContent"></div>
+  </div>
+</div>
+
+<!-- Personaliza tu pedido (base de la Yaroa, ingredientes del Chimi, salsa de Alitas, etc.) -->
+<div class="overlay" id="itemOptionsOverlay">
+  <div class="modalbox">
+    <button class="closex" id="closeItemOptions">✕</button>
+    <h3 id="itemOptionsTitle">Personaliza tu pedido</h3>
+    <p class="sub">Elige cómo lo quieres antes de agregarlo al carrito</p>
+    <div id="itemOptionsBody"></div>
+    <button class="btn" id="confirmItemOptions" style="margin-top:16px;">Agregar al carrito</button>
   </div>
 </div>
 
@@ -744,7 +768,7 @@ const DEFAULT_REP_PASS = "4577";
 
 /* ================= PAGE MODE (client menu vs admin, same file/origin so
    all data stays in sync — reached via two different links) ================= */
-const ADMIN_MODE = true; // este archivo abre directo en el panel administrador
+const ADMIN_MODE = true; // este archivo abre directo en el panel administrador;
 const DELIVERY_MODE = location.hash === '#delivery';
 const REPARTIDOR_MODE = location.hash === '#repartidor';
 if(ADMIN_MODE){ document.body.classList.add('admin-mode'); }
@@ -893,6 +917,68 @@ function orderSuffix(it){
   }
   return parts.length ? (' — '+parts.join(', ')) : '';
 }
+
+/* ---- Modal "Personaliza tu pedido": se abre en vez de mostrar el select/
+   checkboxes pegados en la tarjeta del menú, con los grupos de opciones
+   organizados y con nombre (ej. "Elige tu base", "Quita lo que no quieras"). ---- */
+let optionsModalItemId = null;
+let optionsModalMode = 'add'; // 'add' = va a sumar 1 al carrito al confirmar; 'edit' = solo actualiza la selección ya en el carrito
+function optionGroupsHtml(it){
+  let html = '';
+  if(it.variants && it.variants.length){
+    const current = (cartVariant[it.id] && it.variants.indexOf(cartVariant[it.id])!==-1) ? cartVariant[it.id] : it.variants[0];
+    html += `<div class="optgroup"><div class="grouptitle">Elige tu base</div>` +
+      it.variants.map(v=>`<label class="optrow"><input type="radio" name="modalVariant" value="${v}" ${current===v?'checked':''}> ${v}</label>`).join('') +
+      `</div>`;
+  }
+  if(it.checks && it.checks.length){
+    const st = cartChecks[it.id] || {};
+    html += `<div class="optgroup"><div class="grouptitle">Quita lo que no quieras</div>` +
+      it.checks.map(c=>{
+        const checked = st[c]!==false;
+        return `<label class="optrow"><input type="checkbox" class="modalCheck" data-name="${c}" ${checked?'checked':''}> ${c}</label>`;
+      }).join('') +
+      `</div>`;
+  }
+  return html;
+}
+function openItemOptionsModal(id, mode){
+  const it = itemById(id);
+  if(!it) return;
+  optionsModalItemId = id;
+  optionsModalMode = mode || 'add';
+  document.getElementById('itemOptionsTitle').textContent = 'Personaliza: ' + it.n;
+  document.getElementById('itemOptionsBody').innerHTML = optionGroupsHtml(it);
+  document.getElementById('confirmItemOptions').textContent = optionsModalMode==='edit' ? 'Guardar cambios' : 'Agregar al carrito';
+  document.getElementById('itemOptionsOverlay').classList.add('show');
+}
+function closeItemOptionsModal(){
+  document.getElementById('itemOptionsOverlay').classList.remove('show');
+  optionsModalItemId = null;
+}
+document.getElementById('closeItemOptions').addEventListener('click', closeItemOptionsModal);
+document.getElementById('itemOptionsOverlay').addEventListener('click', (e)=>{
+  if(e.target.id==='itemOptionsOverlay') closeItemOptionsModal();
+});
+document.getElementById('confirmItemOptions').addEventListener('click', ()=>{
+  const id = optionsModalItemId;
+  if(!id) return;
+  const it = itemById(id);
+  const body = document.getElementById('itemOptionsBody');
+  const variantRadio = body.querySelector('input[name="modalVariant"]:checked');
+  if(variantRadio) cartVariant[id] = variantRadio.value;
+  if(it && it.checks && it.checks.length){
+    if(!cartChecks[id]) cartChecks[id] = {};
+    body.querySelectorAll('.modalCheck').forEach(box=>{
+      cartChecks[id][box.dataset.name] = box.checked;
+    });
+  }
+  const mode = optionsModalMode;
+  closeItemOptionsModal();
+  if(mode==='edit'){ renderMenu(); if(document.getElementById('cartOverlay').classList.contains('show')) renderCartPanel(); }
+  else setQty(id, (cart[id]||0)+1);
+});
+
 function itemById(id){
   if(typeof id==='string' && id.indexOf('promo_')===0){
     const p = loadPromos().find(x=>x.id===id);
@@ -928,19 +1014,22 @@ function setQty(id, qty){
 }
 
 /* ================= RENDER MENU ================= */
+function itemHasOptions(it){ return (it.variants && it.variants.length) || (it.checks && it.checks.length); }
 function itemRowHtml(it, idForStock){
   const price = effectivePrice(it);
   const qty = cart[it.id]||0;
   const stock = stockOf(idForStock!==undefined?idForStock:it.id);
   const outOfStock = stock!==null && stock<=0;
   const atMax = stock!==null && qty>=stock;
+  const hasOptions = itemHasOptions(it);
   let control;
   if(outOfStock && qty===0){
     control = `<button class="addbtn" disabled>Agotado</button>`;
   } else if(qty>0){
-    control = `<div class="qtybox"><button data-act="dec" data-id="${it.id}">−</button><span>${qty}</span><button data-act="inc" data-id="${it.id}" ${(atMax||!isOpen)?'disabled':''}>+</button></div>`;
+    const editBtn = hasOptions ? `<button class="editoptbtn" data-editopt-id="${it.id}" title="Cambiar opciones">✎</button>` : '';
+    control = `<div class="qtybox">${editBtn}<button data-act="dec" data-id="${it.id}">−</button><span>${qty}</span><button data-act="inc" data-id="${it.id}" ${(atMax||!isOpen)?'disabled':''}>+</button></div>`;
   } else {
-    control = `<button class="addbtn" data-act="add" data-id="${it.id}" ${!isOpen?'disabled':''}>Agregar +</button>`;
+    control = `<button class="addbtn" data-act="add" data-id="${it.id}" ${!isOpen?'disabled':''}>${hasOptions?'Elegir opciones':'Agregar +'}</button>`;
   }
   const img = itemImg(it.id);
   const thumb = img ? `<img class="thumb" src="${img}" alt="${it.n}">` : '';
@@ -950,22 +1039,8 @@ function itemRowHtml(it, idForStock){
       ? `<div class="stockflag out">Agotado</div>`
       : `<div class="stockflag ${stock<=5?'low':''}">Quedan ${stock}</div>`;
   }
-  let variantSel = '';
-  if(it.variants && it.variants.length){
-    if(!cartVariant[it.id] || it.variants.indexOf(cartVariant[it.id])===-1) cartVariant[it.id] = it.variants[0];
-    const opts = it.variants.map(v=>`<option value="${v}" ${cartVariant[it.id]===v?'selected':''}>${v}</option>`).join('');
-    variantSel = `<select class="variantsel" data-variant-id="${it.id}" style="margin-top:4px;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:12px;">${opts}</select>`;
-  }
-  let checksRow = '';
-  if(it.checks && it.checks.length){
-    if(!cartChecks[it.id]) cartChecks[it.id] = {};
-    const boxes = it.checks.map(c=>{
-      const checked = cartChecks[it.id][c]!==false;
-      return `<label style="margin-right:10px;font-size:12px;white-space:nowrap;"><input type="checkbox" class="checkopt" data-check-id="${it.id}" data-check-name="${c}" ${checked?'checked':''}> ${c}</label>`;
-    }).join('');
-    checksRow = `<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 0;">${boxes}</div>`;
-  }
-  return `<div class="item"><div class="left">${thumb}<div class="n">${it.n}${it.sub?`<small>${it.sub}</small>`:''}${stockFlag}${variantSel?`<div>${variantSel}</div>`:''}${checksRow}</div></div><div class="right"><div class="p">${fmt(price)}</div>${control}</div></div>`;
+  const optsTag = hasOptions ? `<div class="optstag">🛠 Personalizable</div>` : '';
+  return `<div class="item"><div class="left">${thumb}<div class="n">${it.n}${it.sub?`<small>${it.sub}</small>`:''}${stockFlag}${optsTag}</div></div><div class="right"><div class="p">${fmt(price)}</div>${control}</div></div>`;
 }
 function renderMenu(){
   const main = document.getElementById('menuMain');
@@ -1012,23 +1087,17 @@ function renderMenu(){
       const id = btn.dataset.id;
       const act = btn.dataset.act;
       const cur = cart[id]||0;
-      if(act==='add' || act==='inc') setQty(id, cur+1);
+      if(act==='add'){
+        const it = itemById(id);
+        if(it && itemHasOptions(it)){ openItemOptionsModal(id, 'add'); return; }
+        setQty(id, cur+1);
+      }
+      else if(act==='inc') setQty(id, cur+1);
       else if(act==='dec') setQty(id, cur-1);
     });
   });
-  main.querySelectorAll('.variantsel').forEach(sel=>{
-    sel.addEventListener('change', ()=>{
-      cartVariant[sel.dataset.variantId] = sel.value;
-    });
-    sel.addEventListener('click', (e)=>e.stopPropagation());
-  });
-  main.querySelectorAll('.checkopt').forEach(box=>{
-    box.addEventListener('change', ()=>{
-      const id = box.dataset.checkId;
-      if(!cartChecks[id]) cartChecks[id] = {};
-      cartChecks[id][box.dataset.checkName] = box.checked;
-    });
-    box.addEventListener('click', (e)=>e.stopPropagation());
+  main.querySelectorAll('.editoptbtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ openItemOptionsModal(btn.dataset.editoptId, 'edit'); });
   });
 }
 renderMenu();
@@ -1644,6 +1713,7 @@ function renderAdminPrices(){
           <div class="photorow">
             <img class="preview" id="itemPhotoPreview-${it.id}" src="${itemImg(it.id)||''}" alt="" style="${itemImg(it.id)?'':'display:none;'}">
             <input type="file" accept="image/*" class="itemPhotoInput" data-id="${it.id}">
+            <button type="button" class="btn secondary removePhotoBtn" data-id="${it.id}" style="padding:8px 12px;font-size:12px;white-space:nowrap;width:auto;">Quitar foto</button>
           </div>
         </div>
         <div style="display:flex;gap:12px;">
@@ -1685,6 +1755,24 @@ function renderAdminPrices(){
       const reader = new FileReader();
       reader.onload = ()=>{ prev.src = reader.result; prev.style.display='block'; };
       reader.readAsDataURL(file);
+    });
+  });
+  wrap.querySelectorAll('.removePhotoBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.id;
+      if(!confirm('¿Quitar la foto de este plato?')) return;
+      const prev = document.getElementById('itemPhotoPreview-'+id);
+      const fileInp = wrap.querySelector(`.itemPhotoInput[data-id="${id}"]`);
+      if(fileInp) fileInp.value='';
+      if(prev){ prev.src=''; prev.style.display='none'; }
+      try{
+        if(MENU_ITEMS_COL) await MENU_ITEMS_COL.doc(id).set({photo:''}, {merge:true});
+        else {
+          const it = menuItemsList.find(x=>x.id===id);
+          if(it) it.photo='';
+          renderMenu();
+        }
+      }catch(e){ alert('No se pudo quitar la foto, revisa la conexión.'); }
     });
   });
   const catList = document.getElementById('catOptions');

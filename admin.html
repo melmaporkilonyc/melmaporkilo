@@ -948,6 +948,32 @@ function fmt(p){
 }
 function catId(name){ return "cat-"+name.toLowerCase().replace(/[^a-z0-9]+/g,"-"); }
 
+/* ---- Sonido de aviso cuando llega un pedido nuevo (panel admin y repartidor).
+   Se genera con el propio navegador (Web Audio API), no depende de subir
+   ningún archivo de audio. Suena solo cuando aparece un pedido de verdad
+   nuevo, nunca en cada actualización de la pantalla. ---- */
+function playNewOrderSound(){
+  try{
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if(!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const playTone = (freq, startTime, duration)=>{
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.35, startTime+0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime+duration);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(startTime); osc.stop(startTime+duration+0.02);
+    };
+    const now = ctx.currentTime;
+    playTone(880, now, 0.18);
+    playTone(880, now+0.26, 0.18);
+  }catch(e){}
+}
+
 /* ================= CART ================= */
 let cart = {}; // id -> qty
 let cartVariant = {}; // id -> selected variant label (when the item has variants)
@@ -1565,16 +1591,24 @@ function repRowHtml(code, o){
   </div>`;
 }
 let unsubscribeRepartidor = null;
+let repartidorOrderIdsSeen = null; // null = todavía no hemos visto la primera carga (no sonar en esa)
 function startRepartidorListener(){
   if(unsubscribeRepartidor) return;
   const wrap = document.getElementById('repList');
   if(!PEDIDOS){ wrap.innerHTML = '<div class="noresult">No hay conexión con el sistema de pedidos.</div>'; return; }
   unsubscribeRepartidor = PEDIDOS.where('type','==','delivery').onSnapshot(snapshot=>{
     const rows = [];
+    const currentIds = new Set();
     snapshot.forEach(doc=>{
       const o = doc.data();
-      if(o.deliveryStatus!=='entregado') rows.push({code:doc.id, o});
+      if(o.deliveryStatus!=='entregado'){ rows.push({code:doc.id, o}); currentIds.add(doc.id); }
     });
+    if(repartidorOrderIdsSeen!==null){
+      let hayNuevo = false;
+      currentIds.forEach(id=>{ if(!repartidorOrderIdsSeen.has(id)) hayNuevo = true; });
+      if(hayNuevo) playNewOrderSound();
+    }
+    repartidorOrderIdsSeen = currentIds;
     if(rows.length===0){ wrap.innerHTML = '<div class="noresult">No hay entregas activas</div>'; return; }
     rows.sort((a,b)=>(a.o.createdAt?.toMillis?.()||0) - (b.o.createdAt?.toMillis?.()||0));
     wrap.innerHTML = rows.map(r=>repRowHtml(r.code, r.o)).join('');
@@ -1689,11 +1723,20 @@ document.getElementById('orderFindBtn').addEventListener('click', searchOrderByC
 document.getElementById('orderCodeInput').addEventListener('keydown', e=>{ if(e.key==='Enter') searchOrderByCode(); });
 
 let unsubscribePending = null;
+let pendingOrderIdsSeen = null; // null = todavía no hemos visto la primera carga (no sonar en esa)
 function startPendingOrdersListener(){
   if(unsubscribePending) return; // ya está escuchando
   const pendWrap = document.getElementById('pendingList');
   if(!PEDIDOS){ pendWrap.innerHTML = '<div class="noresult">No hay conexión con el sistema de pedidos.</div>'; return; }
   unsubscribePending = PEDIDOS.where('status','==','pendiente').onSnapshot(snapshot=>{
+    const currentIds = new Set();
+    snapshot.forEach(doc=> currentIds.add(doc.id));
+    if(pendingOrderIdsSeen!==null){
+      let hayNuevo = false;
+      currentIds.forEach(id=>{ if(!pendingOrderIdsSeen.has(id)) hayNuevo = true; });
+      if(hayNuevo) playNewOrderSound();
+    }
+    pendingOrderIdsSeen = currentIds;
     if(snapshot.empty){ pendWrap.innerHTML = '<div class="noresult">No hay pedidos pendientes</div>'; return; }
     const rows = [];
     snapshot.forEach(doc=> rows.push({code:doc.id, o:doc.data()}));

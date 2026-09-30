@@ -550,6 +550,8 @@ footer b{color:var(--gold2);}
         <b id="statGrandTotal" style="font-size:18px;color:var(--gold2);">$0</b>
       </div>
       <p class="sub" id="statPendingNote" style="margin-top:10px;"></p>
+      <button class="btn" id="resetReportsBtn" style="margin-top:22px;background:#c0392b;color:#fff;">🗑 Reiniciar reporte</button>
+      <p class="sub" style="margin-top:6px;">Borra todos los pedidos guardados y deja las ventas del día en $0. Pide una clave aparte para evitar borrados accidentales.</p>
     </div>
 
     <button class="btn" id="logoutBtn" style="margin-top:18px;font-weight:800;">Cerrar sesión</button>
@@ -651,11 +653,13 @@ const MENU = [
     {id:"b1",n:"Melma Burger",sub:"$20 doble carne",p:15,imgKey:"bacon_burger"},
     {id:"b2",n:"Los 3 Golpes Burger",p:25,imgKey:"classic_cheeseburger"},
   ]},
-  {cat:"Empanadas & Quipes", note:"", items:[
+  {cat:"Empanadas", note:"", items:[
     {id:"e1",n:"Empanada de Pollo",p:5},
     {id:"e2",n:"Empanada de Res",p:3},
     {id:"e3",n:"Empanada Langosta",p:7},
     {id:"e4",n:"Empanada Camarones",p:7},
+  ]},
+  {cat:"Quipes", note:"", items:[
     {id:"e5",n:"Quipe Pollo",p:3},
     {id:"e6",n:"Quipe Res",p:3},
   ]},
@@ -707,8 +711,14 @@ async function ensureMenuSeeded(){
   try{
     const flagRef = db.collection('config').doc('menu_seeded');
     const flagSnap = await flagRef.get();
-    if(flagSnap.exists) return;
-    await flagRef.set({done:true, at: Date.now()});
+    if(flagSnap.exists){
+      // La bandera dice "ya sembrado", pero puede que ese guardado haya fallado
+      // en su momento (ej. por permisos de Firestore) dejando la bandera puesta
+      // sin que el menú realmente se guardara. Verificamos que de verdad haya
+      // datos antes de confiar en la bandera.
+      const checkSnap = await MENU_ITEMS_COL.limit(1).get();
+      if(!checkSnap.empty) return; // sí hay datos reales, no hace falta repetir
+    }
     const batch = db.batch();
     let order = 0;
     MENU.forEach(section=>{
@@ -725,7 +735,10 @@ async function ensureMenuSeeded(){
         });
       }
     }catch(e){}
+    // Solo marcamos la bandera como "listo" DESPUÉS de confirmar que el
+    // guardado tuvo éxito, para no repetir el bug de dejarla puesta en falso.
     await batch.commit();
+    await flagRef.set({done:true, at: Date.now()});
   }catch(e){ console.error('No se pudo migrar el menú:', e); }
 }
 ensureMenuSeeded();
@@ -738,8 +751,14 @@ async function ensureMenuMigrationV2(){
   try{
     const flagRef = db.collection('config').doc('menu_migration_v2');
     const flagSnap = await flagRef.get();
-    if(flagSnap.exists) return;
-    await flagRef.set({done:true, at: Date.now()});
+    if(flagSnap.exists){
+      // Igual que en ensureMenuSeeded: verificamos que de verdad se haya
+      // aplicado (ej. checando si 'y1' ya tiene variants) antes de confiar
+      // ciegamente en la bandera, por si quedó puesta sin guardar de verdad.
+      const checkDoc = await MENU_ITEMS_COL.doc('y1').get();
+      const already = checkDoc.exists && Array.isArray(checkDoc.data().variants) && checkDoc.data().variants.length>0;
+      if(already) return;
+    }
     const batch = db.batch();
     ["y1","y2","y3","y4","y5","y6","y7"].forEach(id=>{
       batch.set(MENU_ITEMS_COL.doc(id), {variants: YAROA_BASES}, {merge:true});
@@ -749,9 +768,35 @@ async function ensureMenuMigrationV2(){
       batch.set(MENU_ITEMS_COL.doc(id), {checks: CHIMI_INGREDIENTES}, {merge:true});
     });
     await batch.commit();
+    await flagRef.set({done:true, at: Date.now()});
   }catch(e){ console.error('No se pudo aplicar la migración v2 del menú:', e); }
 }
 ensureMenuMigrationV2();
+/* ---- migración v3: separa la categoría combinada "Empanadas & Quipes" en
+   dos categorías reales ("Empanadas" y "Quipes"), ya que son productos
+   distintos y no deben mostrarse juntos. ---- */
+async function ensureMenuMigrationV3(){
+  if(!db) return;
+  try{
+    const flagRef = db.collection('config').doc('menu_migration_v3');
+    const flagSnap = await flagRef.get();
+    if(flagSnap.exists){
+      const checkDoc = await MENU_ITEMS_COL.doc('e5').get();
+      const already = checkDoc.exists && checkDoc.data().cat==='Quipes';
+      if(already) return;
+    }
+    const batch = db.batch();
+    ["e1","e2","e3","e4"].forEach(id=>{
+      batch.set(MENU_ITEMS_COL.doc(id), {cat:'Empanadas'}, {merge:true});
+    });
+    ["e5","e6"].forEach(id=>{
+      batch.set(MENU_ITEMS_COL.doc(id), {cat:'Quipes'}, {merge:true});
+    });
+    await batch.commit();
+    await flagRef.set({done:true, at: Date.now()});
+  }catch(e){ console.error('No se pudo aplicar la migración v3 del menú:', e); }
+}
+ensureMenuMigrationV3();
 function currentMenuFlat(){ return menuItemsLoaded ? menuItemsList : flattenStaticMenu(); }
 function currentMenuSections(){
   const list = currentMenuFlat().slice().sort((a,b)=>(a.order||0)-(b.order||0));
@@ -907,12 +952,19 @@ function catId(name){ return "cat-"+name.toLowerCase().replace(/[^a-z0-9]+/g,"-"
 let cart = {}; // id -> qty
 let cartVariant = {}; // id -> selected variant label (when the item has variants)
 let cartChecks = {}; // id -> {ingredientName: true/false} (when the item has checks/ingredientes)
+/* Si el ingrediente ya se llama "No X" o "Sin X" (el dueño lo escribió así al
+   crear el producto), lo tratamos como una opción que el cliente ACTIVA si la
+   quiere (empieza sin marcar). Si es un ingrediente normal (ej. "Cebolla"),
+   se trata como incluido por defecto y el cliente lo DESMARCA para quitarlo. */
+function isOptInCheck(name){ return /^\s*(no|sin)\b/i.test(name||''); }
 function orderSuffix(it){
   const parts = [];
   if(cartVariant[it.id]) parts.push(cartVariant[it.id]);
   if(it.checks && it.checks.length){
     const st = cartChecks[it.id] || {};
-    const removed = it.checks.filter(c=>st[c]===false);
+    const optIn = it.checks.filter(c=>isOptInCheck(c) && st[c]===true);
+    const removed = it.checks.filter(c=>!isOptInCheck(c) && st[c]===false);
+    if(optIn.length) parts.push(optIn.join(', '));
     if(removed.length) parts.push('sin '+removed.join(', sin '));
   }
   return parts.length ? (' — '+parts.join(', ')) : '';
@@ -933,9 +985,12 @@ function optionGroupsHtml(it){
   }
   if(it.checks && it.checks.length){
     const st = cartChecks[it.id] || {};
-    html += `<div class="optgroup"><div class="grouptitle">Quita lo que no quieras</div>` +
+    html += `<div class="optgroup"><div class="grouptitle">Personaliza (opcional)</div>` +
       it.checks.map(c=>{
-        const checked = st[c]!==false;
+        // Opciones tipo "No X"/"Sin X": empiezan SIN marcar, el cliente elige
+        // si las quiere. Ingredientes normales: empiezan marcados (incluidos
+        // por defecto) y el cliente los desmarca para quitarlos.
+        const checked = isOptInCheck(c) ? (st[c]===true) : (st[c]!==false);
         return `<label class="optrow"><input type="checkbox" class="modalCheck" data-name="${c}" ${checked?'checked':''}> ${c}</label>`;
       }).join('') +
       `</div>`;
@@ -1772,7 +1827,10 @@ function renderAdminPrices(){
           if(it) it.photo='';
           renderMenu();
         }
-      }catch(e){ alert('No se pudo quitar la foto, revisa la conexión.'); }
+      }catch(e){
+        const detalle = (e && (e.code || e.message)) ? (e.code||'') + (e.message?(' — '+e.message):'') : 'error desconocido';
+        alert('No se pudo quitar la foto (revisa la conexión).\n\nDetalle técnico: ' + detalle);
+      }
     });
   });
   const catList = document.getElementById('catOptions');
@@ -1808,9 +1866,19 @@ document.getElementById('savePrices').addEventListener('click', async ()=>{
     if(dataUrl) newPhotos[inp.dataset.id] = dataUrl;
   }
   btn.textContent = 'Guardando...';
+  // Reintenta una vez automáticamente si falla por un corte breve de señal
+  // (común en datos móviles), antes de rendirse y avisar al usuario.
+  async function withRetry(fn, label){
+    try{ await fn(); }
+    catch(e1){
+      console.warn('Fallo al '+label+', reintentando en 1.5s...', e1);
+      await new Promise(r=>setTimeout(r,1500));
+      await fn(); // si esto también falla, el error sube al catch de afuera
+    }
+  }
   try{
     if(CONFIG_PRECIOS){
-      await CONFIG_PRECIOS.set({overrides:newOverrides}, {merge:false});
+      await withRetry(()=>CONFIG_PRECIOS.set({overrides:newOverrides}, {merge:false}), 'guardar precios');
     } else {
       overrides = newOverrides; savePricesCache(overrides); renderMenu();
     }
@@ -1829,12 +1897,13 @@ document.getElementById('savePrices').addEventListener('click', async ()=>{
         if(n) batch.set(MENU_ITEMS_COL.doc(id), fields, {merge:true});
       });
       Object.entries(newStock).forEach(([id,val])=>{ batch.set(INVENTARIO_COL.doc(id), {stock:val}); });
-      await batch.commit();
+      await withRetry(()=>batch.commit(), 'guardar productos');
     } else {
       stockMap = {...stockMap, ...newStock}; saveStockCache(stockMap); renderMenu();
     }
   } catch(e){
-    alert('No se pudo guardar (revisa la conexión). Se guardó localmente en este dispositivo.');
+    const detalle = (e && (e.code || e.message)) ? (e.code||'') + (e.message?(' — '+e.message):'') : 'error desconocido';
+    alert('No se pudo guardar (revisa la conexión a internet e inténtalo otra vez).\nSe guardó localmente en este dispositivo mientras tanto.\n\nDetalle técnico: ' + detalle);
     overrides = newOverrides; savePricesCache(overrides);
     stockMap = {...stockMap, ...newStock}; saveStockCache(stockMap);
     renderMenu();
@@ -2033,6 +2102,37 @@ function renderAdminReports(){
     document.getElementById('statPendingNote').textContent = 'No se pudo conectar con la base de datos de pedidos.';
   });
 }
+/* --- Reiniciar reporte: borra TODOS los pedidos guardados (Firestore) para
+   dejar las ventas en $0. Pide una clave aparte (9911) de la del admin (7738)
+   para evitar borrados accidentales al tocar el botón por error. --- */
+const RESET_REPORTS_PASS = '9911';
+document.getElementById('resetReportsBtn').addEventListener('click', async ()=>{
+  const pass = prompt('Escribe la clave para reiniciar el reporte:');
+  if(pass===null) return;
+  if(pass!==RESET_REPORTS_PASS){ alert('Clave incorrecta. No se borró nada.'); return; }
+  if(!confirm('¿Seguro que quieres borrar TODOS los pedidos guardados y dejar las ventas en $0? Esto no se puede deshacer.')) return;
+  const btn = document.getElementById('resetReportsBtn');
+  btn.disabled = true; btn.textContent = 'Borrando...';
+  try{
+    if(!PEDIDOS) throw new Error('Sin conexión a la base de pedidos');
+    let borrados = 0;
+    // Firestore permite máximo 500 operaciones por batch, así que borramos en tandas.
+    while(true){
+      const snap = await PEDIDOS.limit(400).get();
+      if(snap.empty) break;
+      const batch = db.batch();
+      snap.forEach(doc=>{ batch.delete(doc.ref); });
+      await batch.commit();
+      borrados += snap.size;
+      if(snap.size < 400) break;
+    }
+    alert(`Listo, se borraron ${borrados} pedido(s). El reporte queda en $0.`);
+  } catch(e){
+    const detalle = (e && (e.code || e.message)) ? (e.code||'') + (e.message?(' — '+e.message):'') : 'error desconocido';
+    alert('No se pudo reiniciar el reporte (revisa la conexión).\n\nDetalle técnico: ' + detalle);
+  }
+  btn.disabled = false; btn.textContent = '🗑 Reiniciar reporte';
+});
 
 /* --- Tabs switching --- */
 document.querySelectorAll('.tabbtn').forEach(btn=>{

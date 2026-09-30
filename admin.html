@@ -707,8 +707,14 @@ async function ensureMenuSeeded(){
   try{
     const flagRef = db.collection('config').doc('menu_seeded');
     const flagSnap = await flagRef.get();
-    if(flagSnap.exists) return;
-    await flagRef.set({done:true, at: Date.now()});
+    if(flagSnap.exists){
+      // La bandera dice "ya sembrado", pero puede que ese guardado haya fallado
+      // en su momento (ej. por permisos de Firestore) dejando la bandera puesta
+      // sin que el menú realmente se guardara. Verificamos que de verdad haya
+      // datos antes de confiar en la bandera.
+      const checkSnap = await MENU_ITEMS_COL.limit(1).get();
+      if(!checkSnap.empty) return; // sí hay datos reales, no hace falta repetir
+    }
     const batch = db.batch();
     let order = 0;
     MENU.forEach(section=>{
@@ -725,7 +731,10 @@ async function ensureMenuSeeded(){
         });
       }
     }catch(e){}
+    // Solo marcamos la bandera como "listo" DESPUÉS de confirmar que el
+    // guardado tuvo éxito, para no repetir el bug de dejarla puesta en falso.
     await batch.commit();
+    await flagRef.set({done:true, at: Date.now()});
   }catch(e){ console.error('No se pudo migrar el menú:', e); }
 }
 ensureMenuSeeded();
@@ -738,8 +747,14 @@ async function ensureMenuMigrationV2(){
   try{
     const flagRef = db.collection('config').doc('menu_migration_v2');
     const flagSnap = await flagRef.get();
-    if(flagSnap.exists) return;
-    await flagRef.set({done:true, at: Date.now()});
+    if(flagSnap.exists){
+      // Igual que en ensureMenuSeeded: verificamos que de verdad se haya
+      // aplicado (ej. checando si 'y1' ya tiene variants) antes de confiar
+      // ciegamente en la bandera, por si quedó puesta sin guardar de verdad.
+      const checkDoc = await MENU_ITEMS_COL.doc('y1').get();
+      const already = checkDoc.exists && Array.isArray(checkDoc.data().variants) && checkDoc.data().variants.length>0;
+      if(already) return;
+    }
     const batch = db.batch();
     ["y1","y2","y3","y4","y5","y6","y7"].forEach(id=>{
       batch.set(MENU_ITEMS_COL.doc(id), {variants: YAROA_BASES}, {merge:true});
@@ -749,6 +764,7 @@ async function ensureMenuMigrationV2(){
       batch.set(MENU_ITEMS_COL.doc(id), {checks: CHIMI_INGREDIENTES}, {merge:true});
     });
     await batch.commit();
+    await flagRef.set({done:true, at: Date.now()});
   }catch(e){ console.error('No se pudo aplicar la migración v2 del menú:', e); }
 }
 ensureMenuMigrationV2();

@@ -405,8 +405,10 @@ footer b{color:var(--gold2);}
         <button type="button" class="ordertype-btn" id="typeDeliveryBtn" data-type="delivery">🏠 Delivery</button>
       </div>
       <div id="deliveryFields" style="display:none;margin-top:10px;">
+        <input id="deliveryName" type="text" placeholder="Tu nombre" style="width:100%;margin-bottom:8px;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:14px;">
         <input id="deliveryAddress" type="text" placeholder="Dirección de entrega" style="width:100%;margin-bottom:8px;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:14px;">
-        <input id="deliveryPhone" type="tel" placeholder="Tu número de WhatsApp (ej. 3471234567)" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:14px;">
+        <input id="deliveryPhone" type="tel" placeholder="Tu número de WhatsApp (ej. 3471234567)" style="width:100%;margin-bottom:8px;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:14px;">
+        <button type="button" class="btn secondary" id="cancelDeliveryBtn" style="width:auto;padding:8px 14px;font-size:12.5px;">Cancelar delivery</button>
       </div>
     </div>
 
@@ -951,12 +953,23 @@ function catId(name){ return "cat-"+name.toLowerCase().replace(/[^a-z0-9]+/g,"-"
 /* ---- Sonido de aviso cuando llega un pedido nuevo (panel admin y repartidor).
    Se genera con el propio navegador (Web Audio API), no depende de subir
    ningún archivo de audio. Suena solo cuando aparece un pedido de verdad
-   nuevo, nunca en cada actualización de la pantalla. ---- */
+   nuevo, nunca en cada actualización de la pantalla.
+   Los navegadores bloquean el audio automático hasta que hay al menos un
+   clic en la página, así que "activamos" el audio desde el primer clic
+   (ej. al iniciar sesión) y reusamos ese mismo contexto después. ---- */
+let sharedAudioCtx = null;
+function getSharedAudioCtx(){
+  const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+  if(!AudioCtxClass) return null;
+  if(!sharedAudioCtx) sharedAudioCtx = new AudioCtxClass();
+  if(sharedAudioCtx.state==='suspended') sharedAudioCtx.resume().catch(()=>{});
+  return sharedAudioCtx;
+}
+document.addEventListener('click', getSharedAudioCtx, {passive:true});
 function playNewOrderSound(){
   try{
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if(!AudioCtx) return;
-    const ctx = new AudioCtx();
+    const ctx = getSharedAudioCtx();
+    if(!ctx) return;
     const playTone = (freq, startTime, duration)=>{
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -1257,6 +1270,7 @@ async function createOrder(items, total, orderMeta){
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   };
   if(orderMeta.type==='delivery'){
+    orderDoc.name = orderMeta.name||'';
     orderDoc.address = orderMeta.address||'';
     orderDoc.phone = orderMeta.phone||'';
     orderDoc.deliveryStatus = 'en_espera';
@@ -1323,6 +1337,9 @@ function paintOrderTypeButtons(){
 }
 document.getElementById('typePickupBtn').addEventListener('click', ()=>{ selectedOrderType='pickup'; paintOrderTypeButtons(); });
 document.getElementById('typeDeliveryBtn').addEventListener('click', ()=>{ selectedOrderType='delivery'; paintOrderTypeButtons(); });
+/* El cliente puede cancelar el delivery si cambió de opinión y prefiere
+   recoger en el camión en vez de que le lleven el pedido. */
+document.getElementById('cancelDeliveryBtn').addEventListener('click', ()=>{ selectedOrderType='pickup'; paintOrderTypeButtons(); });
 paintOrderTypeButtons();
 
 document.getElementById('confirmOrder').addEventListener('click', async ()=>{
@@ -1331,10 +1348,11 @@ document.getElementById('confirmOrder').addEventListener('click', async ()=>{
   if(ids.length===0) return;
   const orderMeta = {type: selectedOrderType};
   if(selectedOrderType==='delivery'){
+    orderMeta.name = document.getElementById('deliveryName').value.trim();
     orderMeta.address = document.getElementById('deliveryAddress').value.trim();
     orderMeta.phone = document.getElementById('deliveryPhone').value.trim();
-    if(!orderMeta.address || !orderMeta.phone){
-      alert('Para delivery necesitamos tu dirección y tu número de WhatsApp.');
+    if(!orderMeta.name || !orderMeta.address || !orderMeta.phone){
+      alert('Para delivery necesitamos tu nombre, tu dirección y tu número de WhatsApp.');
       return;
     }
   }
@@ -1579,6 +1597,7 @@ function repRowHtml(code, o){
       <b style="color:var(--gold2);">#${code}</b>
       <b>${fmt(o.total)}</b>
     </div>
+    ${o.name ? `<div style="font-weight:700;margin:2px 0;">👤 ${o.name}</div>` : ''}
     <div class="addr">🏠 ${o.address||'(sin dirección)'}</div>
     <iframe class="maprow" loading="lazy" src="${mapEmbedByAddress(o.address||'')}"></iframe>
     <div class="items">${itemsTxt}</div>
@@ -1685,6 +1704,7 @@ function orderRowHtml(code, o){
     : (o.status==='pagado' ? '<span class="pill paid">Pagado</span>' : '<span class="pill pend">Pendiente</span>');
   const itemsTxt = o.items.map(it=>`${it.qty}x ${it.n}`).join(', ');
   const deliveryInfo = isDelivery ? `
+    ${o.name ? `<div style="color:var(--gold2);font-size:12.5px;margin:2px 0;">👤 ${o.name}</div>` : ''}
     <div style="color:var(--gold2);font-size:12.5px;margin:2px 0;">🏠 ${o.address||''}</div>` : '';
   return `<div style="padding:10px 0;border-bottom:1px solid var(--line);">
     <div style="display:flex;justify-content:space-between;align-items:center;">

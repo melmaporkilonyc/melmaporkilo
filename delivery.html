@@ -1750,7 +1750,7 @@ function startDriverWatcher(code){
 }
 function wireRepStatusButtons(container){
   container.querySelectorAll('[data-rep-status]').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
+    btn.onclick = async ()=>{
       const code = btn.dataset.code;
       const newStatus = btn.dataset.repStatus;
       btn.disabled = true;
@@ -1767,7 +1767,7 @@ function wireRepStatusButtons(container){
         }
       } catch(e){ alert('No se pudo actualizar, revisa la conexión.'); }
       btn.disabled = false;
-    });
+    };
   });
 }
 
@@ -1786,8 +1786,10 @@ function fmtOrderTime(o){
   }catch(e){ return ''; }
 }
 function receiptCopyHtml(code, o, copyLabel){
+  let subtotal = 0;
   const itemsHtml = (o.items||[]).map(it=>{
     const lineTotal = (it.price||0) * (it.qty||1);
+    subtotal += lineTotal;
     return `<div class="r-item">
       <div class="r-row"><div>${it.qty}x ${it.n}</div><div>${fmt(lineTotal)}</div></div>
     </div>`;
@@ -1812,6 +1814,7 @@ function receiptCopyHtml(code, o, copyLabel){
     <hr>
     ${itemsHtml}
     <hr>
+    <div class="r-row"><div>Subtotal</div><div>${fmt(subtotal)}</div></div>
     <div class="r-row r-total"><div>TOTAL</div><div>${fmt(o.total)}</div></div>
     <div class="r-foot">Pagas en efectivo o tarjeta al recibir<br>¡Gracias por tu compra!</div>
   </div>`;
@@ -1836,7 +1839,7 @@ document.getElementById('receiptOverlay').addEventListener('click', (e)=>{
 });
 function wireReceiptButtons(container){
   container.querySelectorAll('[data-receipt]').forEach(btn=>{
-    btn.addEventListener('click', ()=> openReceiptModal(btn.dataset.receipt));
+    btn.onclick = ()=> openReceiptModal(btn.dataset.receipt);
   });
 }
 
@@ -1887,27 +1890,27 @@ function orderRowHtml(code, o){
 }
 function wireConfirmButtons(container){
   container.querySelectorAll('[data-confirm]').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
+    btn.onclick = async ()=>{
       btn.disabled = true; btn.textContent = 'Confirmando...';
       try{ await markOrderPaid(btn.dataset.confirm); }
       catch(e){ alert('No se pudo confirmar el pago, intenta de nuevo.'); btn.disabled=false; btn.textContent='Confirmar pago'; }
-    });
+    };
   });
   container.querySelectorAll('[data-accept]').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
+    btn.onclick = async ()=>{
       btn.disabled = true; btn.textContent = 'Aceptando...';
       try{ await PEDIDOS.doc(btn.dataset.accept).update({prepStatus:'aceptado'}); }
       catch(e){ alert('No se pudo aceptar el pedido, revisa la conexión.'); btn.disabled=false; btn.textContent='✅ Aceptar'; }
-    });
+    };
   });
   container.querySelectorAll('[data-cancel]').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
+    btn.onclick = async ()=>{
       const code = btn.dataset.cancel;
       if(!confirm('¿Seguro que quieres cancelar el pedido #'+code+'? Esto no se puede deshacer.')) return;
       btn.disabled = true; btn.textContent = 'Cancelando...';
       try{ await PEDIDOS.doc(code).update({prepStatus:'cancelado', status:'cancelado'}); }
       catch(e){ alert('No se pudo cancelar el pedido, revisa la conexión.'); btn.disabled=false; btn.textContent='✖ Cancelar'; }
-    });
+    };
   });
   wireReceiptButtons(container);
 }

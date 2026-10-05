@@ -1427,9 +1427,35 @@ function showOrderWaiting(code, items, total, orderMeta){
     <p class="sub" style="text-align:center;">${isDelivery ? 'Pagas en efectivo al repartidor cuando llegue' : 'Paga en efectivo directamente en el camión y muestra este código'}</p>
     <div id="orderMapWrap"></div>
     <div class="orderstatus waiting" id="orderStatusMsg">${isDelivery ? 'Tu pedido está en espera de confirmación' : 'Esperando confirmación de pago'}</div>
+    <button class="btn danger" id="clientCancelBtn" style="margin-top:14px;">✖ Cancelar pedido</button>
   `;
   document.getElementById('orderOverlay').classList.add('show');
+  const cancelBtn = document.getElementById('clientCancelBtn');
+  if(cancelBtn){
+    cancelBtn.addEventListener('click', async ()=>{
+      if(!confirm('¿Seguro que quieres cancelar tu pedido #'+code+'?')) return;
+      cancelBtn.disabled = true; cancelBtn.textContent = 'Cancelando...';
+      try{
+        await PEDIDOS.doc(code).update({prepStatus:'cancelado', status:'cancelado'});
+        if(unsubscribeOrder){ unsubscribeOrder(); unsubscribeOrder=null; }
+        showCancelledByClient(code);
+      }catch(e){
+        alert('No se pudo cancelar el pedido, revisa tu conexión.');
+        cancelBtn.disabled = false; cancelBtn.textContent = '✖ Cancelar pedido';
+      }
+    });
+  }
   watchCurrentOrder(code);
+}
+function showCancelledByClient(code){
+  const box = document.getElementById('orderContent');
+  box.innerHTML = `
+    <div class="thanksbox">
+      <div class="wave">🙅</div>
+      <h3>Pedido cancelado</h3>
+      <p class="sub">Tu pedido #${code} fue cancelado.</p>
+    </div>
+  `;
 }
 let lastMapCoords = null;
 function watchCurrentOrder(code){
@@ -1441,6 +1467,18 @@ function watchCurrentOrder(code){
     if(!o) return;
     const msgEl = document.getElementById('orderStatusMsg');
     const mapWrap = document.getElementById('orderMapWrap');
+    const cancelBtn = document.getElementById('clientCancelBtn');
+    if(o.status==='cancelado'){
+      if(unsubscribeOrder){ unsubscribeOrder(); unsubscribeOrder=null; }
+      showCancelledByClient(code);
+      return;
+    }
+    if(cancelBtn){
+      // Una vez que el trabajador ya aceptó el pedido o el repartidor ya salió,
+      // el cliente ya no puede cancelarlo él mismo.
+      const canCancel = o.prepStatus!=='aceptado' && o.deliveryStatus!=='en_camino' && o.deliveryStatus!=='entregado';
+      cancelBtn.style.display = canCancel ? '' : 'none';
+    }
     if(o.type==='delivery'){
       if(o.deliveryStatus==='entregado'){
         if(unsubscribeOrder){ unsubscribeOrder(); unsubscribeOrder=null; }
@@ -1638,6 +1676,7 @@ function repRowHtml(code, o){
       <b style="color:var(--gold2);">#${code}</b>
       <b>${fmt(o.total)}</b>
     </div>
+    <div style="color:var(--muted);font-size:11.5px;margin-top:2px;">🕐 ${fmtOrderTime(o)}</div>
     ${o.name ? `<div style="font-weight:700;margin:2px 0;">👤 ${o.name}</div>` : ''}
     <div class="addr">🏠 ${o.address||'(sin dirección)'}</div>
     <iframe class="maprow" loading="lazy" src="${mapEmbedByAddress(o.address||'')}"></iframe>
@@ -1662,7 +1701,7 @@ function startRepartidorListener(){
     const currentIds = new Set();
     snapshot.forEach(doc=>{
       const o = doc.data();
-      if(o.deliveryStatus!=='entregado'){ rows.push({code:doc.id, o}); currentIds.add(doc.id); }
+      if(o.deliveryStatus!=='entregado' && o.status!=='cancelado'){ rows.push({code:doc.id, o}); currentIds.add(doc.id); }
     });
     if(repartidorOrderIdsSeen!==null){
       let hayNuevo = false;
@@ -1740,6 +1779,12 @@ function fmtOrderDateTime(o){
     return d.toLocaleString('es-DO', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
   }catch(e){ return ''; }
 }
+function fmtOrderTime(o){
+  try{
+    const d = o.createdAt && o.createdAt.toDate ? o.createdAt.toDate() : new Date();
+    return d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+  }catch(e){ return ''; }
+}
 function receiptCopyHtml(code, o, copyLabel){
   const itemsHtml = (o.items||[]).map(it=>{
     const lineTotal = (it.price||0) * (it.qty||1);
@@ -1804,24 +1849,38 @@ function deliveryStatusLabel(ds){
 function orderRowHtml(code, o){
   ordersCache[code] = o;
   const isDelivery = o.type==='delivery';
+  const isCancelled = o.prepStatus==='cancelado';
+  const isAccepted = o.prepStatus==='aceptado';
   // Para delivery, "confirmado" en el panel del dueño solo significa que el
   // repartidor ya marcó la entrega como hecha (control exclusivo del repartidor).
-  const pill = isDelivery
-    ? (o.deliveryStatus==='entregado' ? '<span class="pill paid">Confirmado ✅</span>' : deliveryStatusLabel(o.deliveryStatus))
-    : (o.status==='pagado' ? '<span class="pill paid">Pagado</span>' : '<span class="pill pend">Pendiente</span>');
+  let pill;
+  if(isCancelled){
+    pill = '<span class="pill" style="background:rgba(231,76,60,.18);color:#e74c3c;">Cancelado ❌</span>';
+  } else {
+    pill = isDelivery
+      ? (o.deliveryStatus==='entregado' ? '<span class="pill paid">Confirmado ✅</span>' : deliveryStatusLabel(o.deliveryStatus))
+      : (o.status==='pagado' ? '<span class="pill paid">Pagado</span>' : '<span class="pill pend">Pendiente</span>');
+  }
+  const acceptedPill = (isAccepted && !isCancelled) ? ' <span class="pill paid">Aceptado ✅</span>' : '';
   const itemsTxt = o.items.map(it=>`${it.qty}x ${it.n}`).join(', ');
   const deliveryInfo = isDelivery ? `
     ${o.name ? `<div style="color:var(--gold2);font-size:12.5px;margin:2px 0;">👤 ${o.name}</div>` : ''}
     <div style="color:var(--gold2);font-size:12.5px;margin:2px 0;">🏠 ${o.address||''}</div>` : '';
+  const actionButtons = isCancelled ? '' : `
+    ${!isAccepted ? `<button class="btn" data-accept="${code}" style="padding:8px;">✅ Aceptar</button>` : ''}
+    <button class="btn danger" data-cancel="${code}" style="padding:8px;">✖ Cancelar</button>
+    ${(!isDelivery && o.status==='pendiente') ? `<button class="btn" data-confirm="${code}" style="padding:8px;">Confirmar pago</button>` : ''}
+  `;
   return `<div style="padding:10px 0;border-bottom:1px solid var(--line);">
     <div style="display:flex;justify-content:space-between;align-items:center;">
-      <div><b style="color:var(--gold2);">#${code}</b> ${pill} ${isDelivery?'<span class="pill pend">Delivery</span>':''}</div>
+      <div><b style="color:var(--gold2);">#${code}</b> ${pill}${acceptedPill} ${isDelivery?'<span class="pill pend">Delivery</span>':''}</div>
       <b>${fmt(o.total)}</b>
     </div>
+    <div style="color:var(--muted);font-size:11.5px;margin-top:2px;">🕐 ${fmtOrderTime(o)}</div>
     <div style="color:var(--muted);font-size:12.5px;margin:4px 0 8px;">${itemsTxt}</div>
     ${deliveryInfo}
-    <div style="display:flex;gap:8px;margin-top:4px;">
-      ${(!isDelivery && o.status==='pendiente') ? `<button class="btn" data-confirm="${code}" style="padding:8px;">Confirmar pago</button>` : ''}
+    <div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;">
+      ${actionButtons}
       <button class="btn secondary" data-receipt="${code}" style="padding:8px;">🧾 Recibo</button>
     </div>
   </div>`;
@@ -1832,6 +1891,22 @@ function wireConfirmButtons(container){
       btn.disabled = true; btn.textContent = 'Confirmando...';
       try{ await markOrderPaid(btn.dataset.confirm); }
       catch(e){ alert('No se pudo confirmar el pago, intenta de nuevo.'); btn.disabled=false; btn.textContent='Confirmar pago'; }
+    });
+  });
+  container.querySelectorAll('[data-accept]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      btn.disabled = true; btn.textContent = 'Aceptando...';
+      try{ await PEDIDOS.doc(btn.dataset.accept).update({prepStatus:'aceptado'}); }
+      catch(e){ alert('No se pudo aceptar el pedido, revisa la conexión.'); btn.disabled=false; btn.textContent='✅ Aceptar'; }
+    });
+  });
+  container.querySelectorAll('[data-cancel]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const code = btn.dataset.cancel;
+      if(!confirm('¿Seguro que quieres cancelar el pedido #'+code+'? Esto no se puede deshacer.')) return;
+      btn.disabled = true; btn.textContent = 'Cancelando...';
+      try{ await PEDIDOS.doc(code).update({prepStatus:'cancelado', status:'cancelado'}); }
+      catch(e){ alert('No se pudo cancelar el pedido, revisa la conexión.'); btn.disabled=false; btn.textContent='✖ Cancelar'; }
     });
   });
   wireReceiptButtons(container);
@@ -2256,6 +2331,7 @@ function renderAdminReports(){
     let pickupCount=0, pickupTotal=0, deliveryCount=0, deliveryTotal=0, pendingCount=0;
     snapshot.forEach(doc=>{
       const o = doc.data();
+      if(o.status==='cancelado') return; // los pedidos cancelados no cuentan para nada
       if(o.type==='delivery'){
         if(o.deliveryStatus==='entregado'){ deliveryCount++; deliveryTotal += Number(o.total)||0; }
         else pendingCount++;

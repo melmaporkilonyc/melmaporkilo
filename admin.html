@@ -280,6 +280,34 @@ footer b{color:var(--gold2);}
 .switch.on .knob{transform:translateX(22px);background:var(--green);}
 .saved{color:var(--green);font-size:12.5px;margin-top:8px;display:none;text-align:center;}
 
+/* ---- Recibo (cliente + cocina/trabajador) ---- */
+.receiptbox{background:#fff;color:#111;border:1px solid var(--line);border-radius:12px;
+  width:100%;max-width:340px;max-height:86vh;overflow-y:auto;padding:0;}
+.receiptbox .closex{color:#333;}
+.receipt-actions{display:flex;gap:8px;padding:12px 16px 0;}
+.receipt-actions .btn{font-size:13px;padding:10px 8px;}
+.receipt-paper{font-family:'Courier New',monospace;color:#111;padding:14px 18px 18px;}
+.receipt-copy{padding:10px 0;}
+.receipt-copy .r-center{text-align:center;}
+.receipt-copy .r-biz{font-weight:800;font-size:15px;letter-spacing:.5px;}
+.receipt-copy .r-sub{font-size:11px;color:#333;}
+.receipt-copy .r-label{display:inline-block;margin:8px 0;padding:3px 10px;border:1px dashed #111;
+  font-size:11px;font-weight:700;letter-spacing:1px;}
+.receipt-copy hr{border:none;border-top:1px dashed #111;margin:8px 0;}
+.receipt-copy .r-row{display:flex;justify-content:space-between;font-size:12.5px;margin:3px 0;gap:8px;}
+.receipt-copy .r-item{font-size:12.5px;margin:4px 0;}
+.receipt-copy .r-total{font-size:14.5px;font-weight:800;}
+.receipt-copy .r-foot{text-align:center;font-size:11px;color:#333;margin-top:10px;}
+.receipt-cut{text-align:center;font-size:12px;color:#555;margin:6px 0;letter-spacing:1px;}
+@media print{
+  body > *:not(#receiptOverlay){display:none !important;}
+  #receiptOverlay{position:static !important;background:none !important;padding:0 !important;
+    display:block !important;}
+  #receiptOverlay .receiptbox{max-width:100% !important;max-height:none !important;
+    overflow:visible !important;box-shadow:none !important;border:none !important;}
+  #receiptOverlay .closex,#receiptOverlay .receipt-actions{display:none !important;}
+}
+
 /* ---- Elegant restaurant-style admin ---- */
 .adminmodal{
   background:linear-gradient(165deg,#1b1e22 0%,#101214 65%,#0b0c0e 100%);
@@ -433,6 +461,18 @@ footer b{color:var(--gold2);}
     <p class="sub">Elige cómo lo quieres antes de agregarlo al carrito</p>
     <div id="itemOptionsBody"></div>
     <button class="btn" id="confirmItemOptions" style="margin-top:16px;">Agregar al carrito</button>
+  </div>
+</div>
+
+<!-- Recibo de un pedido: copia cliente + copia cocina/trabajador, listas para imprimir -->
+<div class="overlay" id="receiptOverlay">
+  <div class="receiptbox">
+    <div style="padding:12px 16px 0;"><button class="closex" id="closeReceipt">✕</button></div>
+    <div class="receipt-actions">
+      <button class="btn" id="printReceiptBtn">🖨 Imprimir</button>
+      <button class="btn secondary" id="closeReceiptBtn2">Cerrar</button>
+    </div>
+    <div class="receipt-paper" id="receiptBody"></div>
   </div>
 </div>
 
@@ -1589,6 +1629,7 @@ function mapEmbedByAddress(address){
   return `https://www.google.com/maps?q=${encodeURIComponent(address)}&output=embed`;
 }
 function repRowHtml(code, o){
+  ordersCache[code] = o;
   const status = o.deliveryStatus||'en_espera';
   const itemsTxt = o.items.map(it=>`${it.qty}x ${it.n}`).join(', ');
   const waLink = o.phone ? `<a class="btn secondary" href="https://wa.me/1${String(o.phone).replace(/\D/g,'')}?text=${encodeURIComponent('Hola, soy el repartidor de Melma Por Kilo, voy con tu pedido #'+code)}" target="_blank" rel="noopener">💬 WhatsApp</a>` : '';
@@ -1606,6 +1647,7 @@ function repRowHtml(code, o){
       <button class="btn secondary" data-rep-status="en_espera" data-code="${code}" ${status==='en_espera'?'style="outline:2px solid var(--gold);"':''}>En espera</button>
       <button class="btn secondary" data-rep-status="en_camino" data-code="${code}" ${status==='en_camino'?'style="outline:2px solid var(--gold);"':''}>🚚 En camino</button>
       <button class="btn secondary" data-rep-status="entregado" data-code="${code}">✅ Entregado</button>
+      <button class="btn secondary" data-receipt="${code}">🧾 Recibo</button>
     </div>
   </div>`;
 }
@@ -1632,6 +1674,7 @@ function startRepartidorListener(){
     rows.sort((a,b)=>(a.o.createdAt?.toMillis?.()||0) - (b.o.createdAt?.toMillis?.()||0));
     wrap.innerHTML = rows.map(r=>repRowHtml(r.code, r.o)).join('');
     wireRepStatusButtons(wrap);
+    wireReceiptButtons(wrap);
   }, ()=>{
     wrap.innerHTML = '<div class="noresult">No se pudo conectar con la base de datos de pedidos.</div>';
   });
@@ -1689,6 +1732,69 @@ function wireRepStatusButtons(container){
   });
 }
 
+/* --- Recibo (cliente + cocina/trabajador), disponible en admin y en el panel del repartidor --- */
+const ordersCache = {}; // code -> datos del pedido, para poder armar el recibo sin otra consulta
+function fmtOrderDateTime(o){
+  try{
+    const d = o.createdAt && o.createdAt.toDate ? o.createdAt.toDate() : new Date();
+    return d.toLocaleString('es-DO', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+  }catch(e){ return ''; }
+}
+function receiptCopyHtml(code, o, copyLabel){
+  const itemsHtml = (o.items||[]).map(it=>{
+    const lineTotal = (it.price||0) * (it.qty||1);
+    return `<div class="r-item">
+      <div class="r-row"><div>${it.qty}x ${it.n}</div><div>${fmt(lineTotal)}</div></div>
+    </div>`;
+  }).join('');
+  const isDelivery = o.type==='delivery';
+  const clientInfo = isDelivery ? `
+    ${o.name?`<div class="r-row"><div>Cliente</div><div>${o.name}</div></div>`:''}
+    ${o.address?`<div class="r-row"><div>Dirección</div><div style="text-align:right;max-width:200px;">${o.address}</div></div>`:''}
+    ${o.phone?`<div class="r-row"><div>Teléfono</div><div>${o.phone}</div></div>`:''}
+  ` : '';
+  return `<div class="receipt-copy">
+    <div class="r-center">
+      <div class="r-biz">MELMA POR KILO</div>
+      <div class="r-sub">@melma_por_kilo · 347-969-4577</div>
+      <div class="r-label">${copyLabel}</div>
+    </div>
+    <hr>
+    <div class="r-row"><div>Pedido</div><div><b>#${code}</b></div></div>
+    <div class="r-row"><div>Fecha</div><div>${fmtOrderDateTime(o)}</div></div>
+    <div class="r-row"><div>Tipo</div><div>${isDelivery?'Delivery':'Recoger en el camión'}</div></div>
+    ${clientInfo}
+    <hr>
+    ${itemsHtml}
+    <hr>
+    <div class="r-row r-total"><div>TOTAL</div><div>${fmt(o.total)}</div></div>
+    <div class="r-foot">Pagas en efectivo o tarjeta al recibir<br>¡Gracias por tu compra!</div>
+  </div>`;
+}
+function receiptHtml(code, o){
+  return receiptCopyHtml(code, o, 'COPIA CLIENTE')
+    + '<div class="receipt-cut">✂️ - - - - - - - - - - - - - - - - - - - -</div>'
+    + receiptCopyHtml(code, o, 'COPIA COCINA / TRABAJADOR');
+}
+function openReceiptModal(code){
+  const o = ordersCache[code];
+  if(!o) return;
+  document.getElementById('receiptBody').innerHTML = receiptHtml(code, o);
+  document.getElementById('receiptOverlay').classList.add('show');
+}
+function closeReceiptModal(){ document.getElementById('receiptOverlay').classList.remove('show'); }
+document.getElementById('closeReceipt').addEventListener('click', closeReceiptModal);
+document.getElementById('closeReceiptBtn2').addEventListener('click', closeReceiptModal);
+document.getElementById('printReceiptBtn').addEventListener('click', ()=>window.print());
+document.getElementById('receiptOverlay').addEventListener('click', (e)=>{
+  if(e.target.id==='receiptOverlay') closeReceiptModal();
+});
+function wireReceiptButtons(container){
+  container.querySelectorAll('[data-receipt]').forEach(btn=>{
+    btn.addEventListener('click', ()=> openReceiptModal(btn.dataset.receipt));
+  });
+}
+
 /* --- Pedidos tab (Firestore, en tiempo real) --- */
 function deliveryStatusLabel(ds){
   if(ds==='en_camino') return '<span class="pill paid">En camino</span>';
@@ -1696,6 +1802,7 @@ function deliveryStatusLabel(ds){
   return '<span class="pill pend">En espera</span>';
 }
 function orderRowHtml(code, o){
+  ordersCache[code] = o;
   const isDelivery = o.type==='delivery';
   // Para delivery, "confirmado" en el panel del dueño solo significa que el
   // repartidor ya marcó la entrega como hecha (control exclusivo del repartidor).
@@ -1713,7 +1820,10 @@ function orderRowHtml(code, o){
     </div>
     <div style="color:var(--muted);font-size:12.5px;margin:4px 0 8px;">${itemsTxt}</div>
     ${deliveryInfo}
-    ${(!isDelivery && o.status==='pendiente') ? `<button class="btn" data-confirm="${code}" style="padding:8px;">Confirmar pago</button>` : ''}
+    <div style="display:flex;gap:8px;margin-top:4px;">
+      ${(!isDelivery && o.status==='pendiente') ? `<button class="btn" data-confirm="${code}" style="padding:8px;">Confirmar pago</button>` : ''}
+      <button class="btn secondary" data-receipt="${code}" style="padding:8px;">🧾 Recibo</button>
+    </div>
   </div>`;
 }
 function wireConfirmButtons(container){
@@ -1724,6 +1834,7 @@ function wireConfirmButtons(container){
       catch(e){ alert('No se pudo confirmar el pago, intenta de nuevo.'); btn.disabled=false; btn.textContent='Confirmar pago'; }
     });
   });
+  wireReceiptButtons(container);
 }
 async function searchOrderByCode(){
   const wrapResult = document.getElementById('orderFindResult');

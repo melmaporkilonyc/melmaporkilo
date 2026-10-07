@@ -280,7 +280,11 @@ footer b{color:var(--gold2);}
 .switch.on .knob{transform:translateX(22px);background:var(--green);}
 .saved{color:var(--green);font-size:12.5px;margin-top:8px;display:none;text-align:center;}
 
-/* ---- Recibo (cliente + cocina/trabajador) ---- */
+/* ---- Recibo (cliente + cocina/trabajador) ----
+   z-index alto a propósito: este modal se abre ENCIMA del panel admin/repartidor
+   (que también son overlays), así que necesita quedar por delante de ellos sin
+   depender del orden en el HTML. */
+#receiptOverlay{z-index:95;}
 .receiptbox{background:#fff;color:#111;border:1px solid var(--line);border-radius:12px;
   width:100%;max-width:340px;max-height:86vh;overflow-y:auto;padding:0;}
 .receiptbox .closex{color:#333;}
@@ -410,6 +414,16 @@ footer b{color:var(--gold2);}
 
 <main id="menuMain"></main>
 
+<section id="ubicacion" style="max-width:900px;margin:30px auto 10px;padding:0 16px;">
+  <div class="cathead" style="text-align:center;">📍 Dónde estamos</div>
+  <p class="sub" style="text-align:center;margin:6px 0 10px;"><b>160 W Fordham Rd, Bronx, NY 10468</b><br>Abierto todos los días de 3:00 PM a 3:00 AM</p>
+  <iframe class="maprow" loading="lazy" style="width:100%;height:240px;border:0;border-radius:12px;" src="https://www.google.com/maps?q=160+W+Fordham+Rd,+Bronx,+NY+10468&z=16&output=embed"></iframe>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+    <a class="btn" style="flex:1;min-width:150px;text-align:center;text-decoration:none;" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=160+W+Fordham+Rd,+Bronx,+NY+10468&travelmode=driving">🧭 Cómo llegar (en vivo)</a>
+    <a class="btn secondary" style="flex:1;min-width:150px;text-align:center;text-decoration:none;" target="_blank" rel="noopener" href="https://maps.apple.com/?daddr=160+W+Fordham+Rd,+Bronx,+NY+10468&dirflg=d">🍎 Apple Maps</a>
+  </div>
+</section>
+
 <footer>
   ¡Sabor & Variedad! — <b>Melma Por Kilo</b> — 347-969-4577 — @melma_por_kilo
   <br><span class="adminlink" id="openAdmin">Panel administrador</span>
@@ -464,18 +478,6 @@ footer b{color:var(--gold2);}
   </div>
 </div>
 
-<!-- Recibo de un pedido: copia cliente + copia cocina/trabajador, listas para imprimir -->
-<div class="overlay" id="receiptOverlay">
-  <div class="receiptbox">
-    <div style="padding:12px 16px 0;"><button class="closex" id="closeReceipt">✕</button></div>
-    <div class="receipt-actions">
-      <button class="btn" id="printReceiptBtn">🖨 Imprimir</button>
-      <button class="btn secondary" id="closeReceiptBtn2">Cerrar</button>
-    </div>
-    <div class="receipt-paper" id="receiptBody"></div>
-  </div>
-</div>
-
 <button class="chatfab" id="chatFabBtn">💬</button>
 <div class="chatpanel" id="chatPanel">
   <div class="chathead">
@@ -489,6 +491,21 @@ footer b{color:var(--gold2);}
   </div>
 </div>
 </div><!-- /clientPage -->
+
+<!-- Recibo de un pedido: copia cliente + copia cocina/trabajador, listas para imprimir.
+     Va FUERA de #clientPage a propósito: ese contenedor se oculta por completo
+     (display:none) en modo admin/repartidor, y este recibo tiene que poder abrirse
+     también desde esos dos paneles. -->
+<div class="overlay" id="receiptOverlay">
+  <div class="receiptbox">
+    <div style="padding:12px 16px 0;"><button class="closex" id="closeReceipt">✕</button></div>
+    <div class="receipt-actions">
+      <button class="btn" id="printReceiptBtn">🖨 Imprimir</button>
+      <button class="btn secondary" id="closeReceiptBtn2">Cerrar</button>
+    </div>
+    <div class="receipt-paper" id="receiptBody"></div>
+  </div>
+</div>
 
 <!-- Login modal -->
 <div class="overlay" id="loginOverlay">
@@ -855,7 +872,7 @@ const DEFAULT_REP_PASS = "4577";
 
 /* ================= PAGE MODE (client menu vs admin, same file/origin so
    all data stays in sync — reached via two different links) ================= */
-const ADMIN_MODE = true; // este archivo abre directo en el panel administrador;
+const ADMIN_MODE = location.hash === '#admin';
 const DELIVERY_MODE = location.hash === '#delivery';
 const REPARTIDOR_MODE = location.hash === '#repartidor';
 if(ADMIN_MODE){ document.body.classList.add('admin-mode'); }
@@ -907,7 +924,24 @@ function saveStats(s){ localStorage.setItem(LS_STATS, JSON.stringify(s)); }
 
 /* ---- live in-memory state, kept up to date by Firestore listeners ---- */
 let overrides = loadPricesCache();
-let isOpen = loadOpenCache();
+let manualOpen = loadOpenCache();
+/* Horario automático (hora de Nueva York): abierto de 3:00 PM a 3:00 AM */
+function inSchedule(){
+  let h;
+  try{ h = parseInt(new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',hour12:false}).format(new Date()),10)%24; }
+  catch(e){ h = new Date().getHours(); }
+  return h>=15 || h<3;
+}
+let isOpen = manualOpen && inSchedule();
+function recomputeOpen(){
+  const v = manualOpen && inSchedule();
+  if(v!==isOpen){
+    isOpen = v;
+    try{ renderStatus(); renderMenu(); if(ADMIN_MODE) renderAdminStatus(); }catch(e){}
+  }
+}
+setInterval(recomputeOpen, 30000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) recomputeOpen(); });
 let promosList = loadPromosCache();
 let customList = loadCustomCache();
 let stockMap = loadStockCache();
@@ -933,8 +967,9 @@ function watchConfig(){
   if(CONFIG_ESTADO){
     CONFIG_ESTADO.onSnapshot(doc=>{
       const d = doc.data();
-      isOpen = d && typeof d.open==='boolean' ? d.open : true;
-      saveOpenCache(isOpen);
+      manualOpen = d && typeof d.open==='boolean' ? d.open : true;
+      saveOpenCache(manualOpen);
+      isOpen = manualOpen && inSchedule();
       renderStatus(); renderMenu();
       if(ADMIN_MODE) renderAdminStatus();
     }, ()=>{});
@@ -1250,7 +1285,7 @@ function renderStatus(){
   const badge = document.getElementById('statusBadge');
   const text = document.getElementById('statusText');
   badge.className = 'badge ' + (isOpen?'open':'closed');
-  text.textContent = isOpen ? 'Abierto ahora' : 'Cerrado ahora';
+  text.textContent = isOpen ? 'Abierto ahora' : (manualOpen ? 'Cerrado · abrimos a las 3:00 PM' : 'Cerrado ahora');
 }
 renderStatus();
 
@@ -1412,6 +1447,7 @@ document.getElementById('confirmOrder').addEventListener('click', async ()=>{
   btn.disabled = false; btn.textContent = 'Confirmar pedido';
 });
 
+let cancelWindowOpen = false, cancelWindowTimer = null;
 function showOrderWaiting(code, items, total, orderMeta){
   const box = document.getElementById('orderContent');
   const isDelivery = orderMeta && orderMeta.type==='delivery';
@@ -1431,8 +1467,16 @@ function showOrderWaiting(code, items, total, orderMeta){
   `;
   document.getElementById('orderOverlay').classList.add('show');
   const cancelBtn = document.getElementById('clientCancelBtn');
+  cancelWindowOpen = true;
+  clearTimeout(cancelWindowTimer);
+  cancelWindowTimer = setTimeout(()=>{
+    cancelWindowOpen = false;
+    const b = document.getElementById('clientCancelBtn');
+    if(b) b.style.display = 'none';
+  }, 10000);
   if(cancelBtn){
     cancelBtn.addEventListener('click', async ()=>{
+      if(!cancelWindowOpen){ cancelBtn.style.display='none'; return; }
       if(!confirm('¿Seguro que quieres cancelar tu pedido #'+code+'?')) return;
       cancelBtn.disabled = true; cancelBtn.textContent = 'Cancelando...';
       try{
@@ -1476,7 +1520,7 @@ function watchCurrentOrder(code){
     if(cancelBtn){
       // Una vez que el trabajador ya aceptó el pedido o el repartidor ya salió,
       // el cliente ya no puede cancelarlo él mismo.
-      const canCancel = o.prepStatus!=='aceptado' && o.deliveryStatus!=='en_camino' && o.deliveryStatus!=='entregado';
+      const canCancel = cancelWindowOpen && o.prepStatus!=='aceptado' && o.deliveryStatus!=='en_camino' && o.deliveryStatus!=='entregado';
       cancelBtn.style.display = canCancel ? '' : 'none';
     }
     if(o.type==='delivery'){
@@ -1960,10 +2004,10 @@ function startPendingOrdersListener(){
 /* --- Estado tab --- */
 const openSwitch = document.getElementById('openSwitch');
 function renderAdminStatus(){
-  openSwitch.classList.toggle('on', isOpen);
+  openSwitch.classList.toggle('on', manualOpen);
 }
 openSwitch.addEventListener('click', async ()=>{
-  const now = !isOpen;
+  const now = !manualOpen;
   if(CONFIG_ESTADO){
     openSwitch.style.pointerEvents = 'none';
     try{ await CONFIG_ESTADO.set({open:now}, {merge:true}); }
@@ -1971,7 +2015,7 @@ openSwitch.addEventListener('click', async ()=>{
     openSwitch.style.pointerEvents = '';
     // el listener de Firestore actualiza isOpen y vuelve a pintar todo
   } else {
-    isOpen = now;
+    manualOpen = now; isOpen = manualOpen && inSchedule();
     saveOpenCache(now);
     renderAdminStatus();
     renderStatus();

@@ -873,7 +873,7 @@ const DEFAULT_REP_PASS = "4577";
 
 /* ================= PAGE MODE (client menu vs admin, same file/origin so
    all data stays in sync — reached via two different links) ================= */
-const ADMIN_MODE = location.hash === '#admin';
+const ADMIN_MODE = true; // este archivo abre directo en el panel administrador;
 const DELIVERY_MODE = location.hash === '#delivery';
 const REPARTIDOR_MODE = location.hash === '#repartidor';
 if(ADMIN_MODE){ document.body.classList.add('admin-mode'); }

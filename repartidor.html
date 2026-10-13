@@ -382,6 +382,7 @@ footer b{color:var(--gold2);}
   <div class="brandname">Melma Por Kilo</div>
   <div class="topbar-right">
     <a class="wabtn" id="waBtnTop" href="https://wa.me/13479694577?text=Hola%2C%20quiero%20hacer%20un%20pedido%20en%20Melma%20Por%20Kilo" target="_blank" rel="noopener">💬 WhatsApp</a>
+    <button class="wabtn" id="langBtn" type="button" style="background:#1d2126;color:var(--gold);border:1px solid var(--line);cursor:pointer;" aria-label="Language / Idioma">🌐 EN</button>
     <div class="badge open" id="statusBadge"><span class="dot"></span><span id="statusText">Abierto ahora</span></div>
   </div>
 </header>
@@ -1303,7 +1304,7 @@ searchInput.addEventListener('input', ()=>{
   results.innerHTML='';
   if(!q) return;
   const items = allItemsFlat();
-  const matches = items.filter(it=> it.n.toLowerCase().includes(q) || (it.sub&&it.sub.toLowerCase().includes(q)) || it.cat.toLowerCase().includes(q));
+  const matches = items.filter(it=> it.n.toLowerCase().includes(q) || (typeof LANG!=='undefined' && LANG==='en' && trEn(it.n).toLowerCase().includes(q)) || (it.sub&&it.sub.toLowerCase().includes(q)) || it.cat.toLowerCase().includes(q));
   if(matches.length===0){
     results.innerHTML = '<div class="noresult">No encontramos ese plato</div>';
   } else {
@@ -1418,7 +1419,7 @@ document.getElementById('cancelDeliveryBtn').addEventListener('click', ()=>{ sel
 paintOrderTypeButtons();
 
 document.getElementById('confirmOrder').addEventListener('click', async ()=>{
-  if(!isOpen){ alert('Lo sentimos, en este momento estamos cerrados. Intenta más tarde.'); return; }
+  if(!isOpen){ alert(tr('Lo sentimos, en este momento estamos cerrados. Intenta más tarde.')); return; }
   const ids = Object.keys(cart);
   if(ids.length===0) return;
   const orderMeta = {type: selectedOrderType};
@@ -1427,7 +1428,7 @@ document.getElementById('confirmOrder').addEventListener('click', async ()=>{
     orderMeta.address = document.getElementById('deliveryAddress').value.trim();
     orderMeta.phone = document.getElementById('deliveryPhone').value.trim();
     if(!orderMeta.name || !orderMeta.address || !orderMeta.phone){
-      alert('Para delivery necesitamos tu nombre, tu dirección y tu número de WhatsApp.');
+      alert(tr('Para delivery necesitamos tu nombre, tu dirección y tu número de WhatsApp.'));
       return;
     }
   }
@@ -1442,7 +1443,7 @@ document.getElementById('confirmOrder').addEventListener('click', async ()=>{
     cartOverlay.classList.remove('show');
     showOrderWaiting(code, items, total, orderMeta);
   } catch(e){
-    alert('No se pudo enviar el pedido. Revisa tu conexión e intenta de nuevo.');
+    alert(tr('No se pudo enviar el pedido. Revisa tu conexión e intenta de nuevo.'));
   }
   btn.disabled = false; btn.textContent = 'Confirmar pedido';
 });
@@ -1477,14 +1478,14 @@ function showOrderWaiting(code, items, total, orderMeta){
   if(cancelBtn){
     cancelBtn.addEventListener('click', async ()=>{
       if(!cancelWindowOpen){ cancelBtn.style.display='none'; return; }
-      if(!confirm('¿Seguro que quieres cancelar tu pedido #'+code+'?')) return;
+      if(!confirm(tr('¿Seguro que quieres cancelar tu pedido #'+code+'?'))) return;
       cancelBtn.disabled = true; cancelBtn.textContent = 'Cancelando...';
       try{
         await PEDIDOS.doc(code).update({prepStatus:'cancelado', status:'cancelado'});
         if(unsubscribeOrder){ unsubscribeOrder(); unsubscribeOrder=null; }
         showCancelledByClient(code);
       }catch(e){
-        alert('No se pudo cancelar el pedido, revisa tu conexión.');
+        alert(tr('No se pudo cancelar el pedido, revisa tu conexión.'));
         cancelBtn.disabled = false; cancelBtn.textContent = '✖ Cancelar pedido';
       }
     });
@@ -1584,14 +1585,18 @@ document.getElementById('chatClose').addEventListener('click', ()=>chatPanel.cla
 
 function botReply(msg){
   const q = msg.toLowerCase();
-  if(/(abiert|cerrad|horario|hora)/.test(q)){
+  if(/(abiert|cerrad|horario|hora|open|closed|hours)/.test(q)){
     return isOpen ? 'Sí, ¡estamos abiertos ahora mismo! 🚚' : 'En este momento estamos cerrados, pero puedes escribirnos al 347-969-4577.';
   }
-  if(/(delivery|entrega|envio|envío)/.test(q)){
+  if(/(delivery|entrega|envio|envío|deliver)/.test(q)){
     return 'Hacemos delivery gratis 🙌 Escríbenos al 347-969-4577 o por Instagram @melma_por_kilo para coordinar.';
   }
   const items = allItemsFlat();
-  const matches = items.filter(it=> q.includes(it.n.toLowerCase()) || it.n.toLowerCase().split(' ').some(w=>w.length>3 && q.includes(w)) );
+  const matches = items.filter(it=>{
+    const names = [it.n.toLowerCase()];
+    if(LANG==='en') names.push(trEn(it.n).toLowerCase());
+    return names.some(nm=> q.includes(nm) || nm.split(' ').some(w=>w.length>3 && q.includes(w)));
+  });
   if(matches.length){
     const uniq = [...new Map(matches.map(m=>[m.id,m])).values()].slice(0,5);
     return uniq.map(it=>`${it.n}: ${fmt(effectivePrice(it))}`).join('\n');
@@ -1608,6 +1613,199 @@ function sendChat(){
 }
 document.getElementById('chatSend').addEventListener('click', sendChat);
 chatInput.addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
+
+/* ================= IDIOMA / LANGUAGE (ES ⇄ EN) =================
+   El menú se escribe en español. Cuando el cliente elige English, traducimos
+   SOLO lo que se ve en pantalla (texto y placeholders dentro de #clientPage).
+   Los pedidos que se guardan en Firestore siguen en español para la cocina,
+   el recibo y los paneles. Los platos que el dueño agregue después y que no
+   estén en este diccionario se muestran tal cual los escribió. */
+const LS_LANG = 'melma_lang';
+let LANG = 'es';
+try{ const v = localStorage.getItem(LS_LANG); if(v==='en'||v==='es') LANG = v; }catch(e){}
+const EN = {
+  // pantalla de bienvenida / encabezado
+  'Bienvenido a':'Welcome to',
+  '🚚 Sabor & Variedad · Desliza hacia arriba para ver el menú':'🚚 Flavor & Variety · Swipe up to see the menu',
+  'Abierto ahora':'Open now','Cerrado ahora':'Closed now','Cerrado · abrimos a las 3:00 PM':'Closed · we open at 3:00 PM',
+  '📦 Estás en el enlace de pedidos a domicilio — elige tus platos y al final confirma con tu dirección':'📦 You are on the home-delivery link — pick your dishes and confirm with your address at the end',
+  'Busca un plato... (ej. pollo, burger, jugo)':'Search a dish... (e.g. chicken, burger, juice)',
+  'No encontramos ese plato':"We couldn't find that dish",
+  '¡Sabor & Variedad!':'Flavor & Variety!','Panel administrador':'Admin panel',
+  // ubicación
+  '📍 Dónde estamos':'📍 Where we are','Abierto todos los días de 3:00 PM a 3:00 AM':'Open every day, 3:00 PM to 3:00 AM',
+  '🧭 Cómo llegar (en vivo)':'🧭 Get directions (live)',
+  // menú
+  '🚫 Estamos cerrados en este momento — no se pueden hacer pedidos ahora, pero puedes ver el menú.':'🚫 We are closed right now — orders are not available, but you can browse the menu.',
+  '🔥 Combos y Promociones':'🔥 Combos & Promotions','🔥 Promos':'🔥 Promos',
+  'Agotado':'Sold out','Agregar +':'Add +','Elegir opciones':'Choose options','🛠 Personalizable':'🛠 Customizable','Cambiar opciones':'Change options',
+  // carrito
+  'Ver carrito':'View cart','Tu carrito':'Your cart','Revisa tu pedido antes de confirmar':'Review your order before confirming',
+  'Total':'Total','Tu carrito está vacío':'Your cart is empty','¿Cómo lo quieres?':'How do you want it?',
+  '🚚 Recoger en el camión':'🚚 Pick up at the truck','🏠 Delivery':'🏠 Delivery',
+  'Tu nombre':'Your name','Dirección de entrega':'Delivery address','Tu número de WhatsApp (ej. 3471234567)':'Your WhatsApp number (e.g. 3471234567)',
+  'Cancelar delivery':'Cancel delivery','Confirmar pedido':'Confirm order','Enviando pedido...':'Sending order...',
+  'Pagas en efectivo directamente en el camión o al repartidor':'You pay cash directly at the truck or to the driver',
+  // opciones
+  'Personaliza tu pedido':'Customize your order','Elige cómo lo quieres antes de agregarlo al carrito':'Choose how you want it before adding to the cart',
+  'Agregar al carrito':'Add to cart','Guardar cambios':'Save changes','Elige tu base':'Choose your base','Personaliza (opcional)':'Customize (optional)',
+  // pedido
+  'Tu código de pedido':'Your order code','Total a pagar':'Total to pay',
+  'Pagas en efectivo al repartidor cuando llegue':'You pay cash to the driver on arrival',
+  'Paga en efectivo directamente en el camión y muestra este código':'Pay cash at the truck and show this code',
+  'Tu pedido está en espera de confirmación':'Your order is waiting for confirmation','Esperando confirmación de pago':'Waiting for payment confirmation',
+  '✖ Cancelar pedido':'✖ Cancel order','Cancelando...':'Cancelling...','Pedido cancelado':'Order cancelled',
+  '🚚 Tu pedido está en camino':'🚚 Your order is on the way','🚚 Ubicación del repartidor en vivo':'🚚 Driver location, live',
+  '¡Pedido entregado!':'Order delivered!','¡Gracias por tu compra!':'Thank you for your purchase!',
+  'Gracias por tu compra — Melma Por Kilo 🚚':'Thank you for your purchase — Melma Por Kilo 🚚',
+  'Pago confirmado ✅ — Melma Por Kilo te espera':'Payment confirmed ✅ — Melma Por Kilo is waiting for you',
+  // chat
+  'Asistente Melma':'Melma Assistant','Pregúntame precios o platos':'Ask me about prices or dishes','Enviar':'Send',
+  'Ej: ¿cuánto cuesta la yaroa de pollo?':'E.g. how much is the chicken yaroa?',
+  '¡Hola! Soy el asistente de Melma Por Kilo 🚚 Pregúntame el precio de cualquier plato, por ejemplo: "¿cuánto cuesta la yaroa de pollo?" o escribe "abierto" para saber el horario.':'Hi! I\'m the Melma Por Kilo assistant 🚚 Ask me the price of any dish, for example: "how much is the chicken yaroa?" or type "open" to see if we are open.',
+  'Sí, ¡estamos abiertos ahora mismo! 🚚':'Yes, we are open right now! 🚚',
+  'En este momento estamos cerrados, pero puedes escribirnos al 347-969-4577.':'We are closed right now, but you can text us at 347-969-4577.',
+  'Hacemos delivery gratis 🙌 Escríbenos al 347-969-4577 o por Instagram @melma_por_kilo para coordinar.':'We offer free delivery 🙌 Text us at 347-969-4577 or on Instagram @melma_por_kilo to arrange it.',
+  'No encontré ese plato exacto. Prueba escribiendo el nombre, por ejemplo: "yaroa de pollo", "burger", "jugo" o "alitas". También puedes usar el buscador arriba del menú.':'I couldn\'t find that exact dish. Try typing the name, for example: "chicken yaroa", "burger", "juice" or "wings". You can also use the search bar above the menu.',
+  // alerts
+  'Lo sentimos, en este momento estamos cerrados. Intenta más tarde.':'Sorry, we are closed right now. Please try again later.',
+  'Para delivery necesitamos tu nombre, tu dirección y tu número de WhatsApp.':'For delivery we need your name, address and WhatsApp number.',
+  'No se pudo enviar el pedido. Revisa tu conexión e intenta de nuevo.':'Your order could not be sent. Check your connection and try again.',
+  'No se pudo cancelar el pedido, revisa tu conexión.':'Your order could not be cancelled, check your connection.',
+  // categorías y notas
+  'Bebidas':'Drinks','Alitas':'Wings','Quipes':'Quipes (Kibbeh)',
+  'Elige la base: plátano maduro, papa frita, yuca o mangú':'Choose your base: ripe plantain, french fries, yuca or mangú',
+  'Quita los ingredientes que no quieras':"Remove any ingredients you don't want",'Elige tu salsa':'Choose your sauce',
+  // platos
+  'Yaroa de Marisco':'Seafood Yaroa','Yaroa de Pulpo':'Octopus Yaroa','Yaroa Mar & Tierra':'Surf & Turf Yaroa','Yaroa de Pollo':'Chicken Yaroa',
+  'Yaroa de Pierna':'Roast Pork Yaroa','Yaroa de Res':'Beef Yaroa','Yaroa de Churrasco':'Skirt Steak Yaroa',
+  'Chimi de Pollo':'Chicken Chimi','Chimi de Res':'Beef Chimi','Chimi de Pierna':'Roast Pork Chimi','Chimi de los 3 Golpes':'3 Golpes Chimi','Chimi al Pastor':'Al Pastor Chimi',
+  '$20 doble carne':'$20 double patty','Los 3 Golpes Burger':'3 Golpes Burger',
+  'Empanada de Pollo':'Chicken Empanada','Empanada de Res':'Beef Empanada','Empanada Langosta':'Lobster Empanada','Empanada Camarones':'Shrimp Empanada',
+  'Quipe Pollo':'Chicken Kibbeh','Quipe Res':'Beef Kibbeh','6 unidades con papas':'6 wings with fries','Hot Dog Dominicano':'Dominican Hot Dog',
+  'Mofonguitos Marisco':'Seafood Mofonguitos','Mofonguitos Cerdo':'Pork Mofonguitos','Mofonguitos Pollo':'Chicken Mofonguitos',
+  'Quesadilla Res':'Beef Quesadilla','Quesadilla Pollo':'Chicken Quesadilla','Quesadilla Cerdo':'Pork Quesadilla',
+  'Jugo de Tamarindo':'Tamarind Juice','Jugo de Chinola':'Passion Fruit Juice','Jugo de Guanábana':'Soursop Juice','Jugo de Mango':'Mango Juice','Jugo de Piña':'Pineapple Juice',
+  'Agua':'Water','Country Club Frambuesa / Merengue':'Country Club Raspberry / Merengue',
+  // opciones de platos
+  'Plátano maduro':'Ripe plantain','Papa frita':'French fries','Cebolla':'Onion','Tomate':'Tomato','Repollo':'Cabbage',
+  'Guanábana':'Soursop','Chinola':'Passion fruit','Tamarindo':'Tamarind','Búfalo':'Buffalo'
+};
+const EN_RULES = [
+  [/^Quedan (\d+)$/, (m)=>m[1]+' left'],
+  [/^(\d+) x (.+)$/, (m)=>m[1]+' x '+trEn(m[2])],
+  [/^Personaliza: (.+)$/, (m)=>'Customize: '+trEn(m[1])],
+  [/^Tu pedido #(\d+) fue cancelado\.$/, (m)=>'Your order #'+m[1]+' was cancelled.'],
+  [/^🚚 Tu pedido llega en (\d+) minutos$/, (m)=>'🚚 Your order arrives in '+m[1]+' minutes'],
+  [/^¿Seguro que quieres cancelar tu pedido #(\d+)\?$/, (m)=>'Are you sure you want to cancel your order #'+m[1]+'?']
+];
+function trEn(s){
+  if(s==null) return s;
+  const raw = String(s);
+  const lead = raw.match(/^\s*/)[0], trail = raw.match(/\s*$/)[0];
+  const core = raw.trim();
+  if(!core) return raw;
+  if(EN[core]!==undefined) return lead+EN[core]+trail;
+  for(const [re,fn] of EN_RULES){ const m = core.match(re); if(m) return lead+fn(m)+trail; }
+  // líneas del asistente: "Nombre: $precio"
+  if(core.indexOf('\n')!==-1 || /: \$[\d.]+$/.test(core)){
+    const out = core.split('\n').map(line=>{
+      const m = line.match(/^(.*): (\$[\d.,]+)$/);
+      return m ? trEn(m[1])+': '+m[2] : trEn(line);
+    }).join('\n');
+    if(out!==core) return lead+out+trail;
+  }
+  // "Yaroa de Pollo — Papa frita, sin Cebolla"
+  if(core.indexOf(' — ')!==-1 || core.indexOf(', ')!==-1){
+    const dash = core.split(' — ');
+    const out = dash.map(part=>part.split(', ').map(seg=>{
+      const sm = seg.match(/^(sin|no)\s+(.+)$/i);
+      if(sm) return 'no '+trEn(sm[2]);
+      return trEn(seg);
+    }).join(', ')).join(' — ');
+    if(out!==core) return lead+out+trail;
+  }
+  return raw;
+}
+function tr(s){ return LANG==='en' ? trEn(s) : s; }
+
+const I18N_ATTRS = ['placeholder','title','alt','aria-label'];
+const i18nNodes = new WeakMap();
+function i18nApplyNode(n){
+  const rec = i18nNodes.get(n);
+  if(rec && n.data===rec.t){
+    if(LANG==='es' && n.data!==rec.o) n.data = rec.o;
+    else if(LANG==='en' && rec.o!==rec.t){ /* ya traducido */ }
+    return;
+  }
+  const o = n.data;
+  if(LANG==='en'){
+    const t = trEn(o);
+    if(t!==o){ n.data = t; i18nNodes.set(n,{o,t}); }
+  }
+}
+function i18nApplyEl(el){
+  if(!el.getAttribute) return;
+  I18N_ATTRS.forEach(a=>{
+    if(!el.hasAttribute(a)) return;
+    const store = el._i18n || (el._i18n = {});
+    const cur = el.getAttribute(a);
+    const rec = store[a];
+    if(rec && cur===rec.t){
+      if(LANG==='es') el.setAttribute(a, rec.o);
+      return;
+    }
+    if(LANG==='en'){
+      const t = trEn(cur);
+      if(t!==cur){ el.setAttribute(a,t); store[a]={o:cur,t}; }
+    }
+  });
+}
+function i18nApply(root){
+  if(!root) return;
+  if(root.nodeType===3){ i18nApplyNode(root); return; }
+  if(root.nodeType!==1) return;
+  i18nApplyEl(root);
+  root.querySelectorAll('[placeholder],[title],[alt],[aria-label]').forEach(i18nApplyEl);
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {acceptNode(n){
+    const p = n.parentNode && n.parentNode.nodeName;
+    return (p==='SCRIPT'||p==='STYLE'||p==='TEXTAREA') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+  }});
+  const list=[]; while(w.nextNode()) list.push(w.currentNode);
+  list.forEach(i18nApplyNode);
+}
+let i18nObs = null;
+function i18nStart(){
+  const root = document.getElementById('clientPage');
+  if(!root || i18nObs) return;
+  i18nObs = new MutationObserver(muts=>{
+    if(LANG!=='en') return;
+    i18nObs.disconnect();
+    muts.forEach(m=>{
+      if(m.type==='childList') m.addedNodes.forEach(i18nApply);
+      else if(m.type==='characterData') i18nApply(m.target);
+    });
+    i18nObs.observe(root,{childList:true,subtree:true,characterData:true});
+  });
+  i18nObs.observe(root,{childList:true,subtree:true,characterData:true});
+}
+function setLang(l){
+  LANG = (l==='en') ? 'en' : 'es';
+  try{ localStorage.setItem(LS_LANG, LANG); }catch(e){}
+  document.documentElement.lang = LANG;
+  const root = document.getElementById('clientPage');
+  if(i18nObs) i18nObs.disconnect();
+  i18nApply(root);
+  if(i18nObs) i18nObs.observe(root,{childList:true,subtree:true,characterData:true});
+  const b = document.getElementById('langBtn');
+  if(b) b.textContent = LANG==='en' ? '🌐 ES' : '🌐 EN';
+}
+if(!ADMIN_MODE && !REPARTIDOR_MODE){
+  i18nStart();
+  const lb = document.getElementById('langBtn');
+  if(lb) lb.onclick = ()=> setLang(LANG==='en' ? 'es' : 'en');
+  setLang(LANG);
+}
 
 /* ================= ADMIN ================= */
 const loginOverlay = document.getElementById('loginOverlay');

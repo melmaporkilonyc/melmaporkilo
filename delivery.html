@@ -1913,7 +1913,7 @@ function repRowHtml(code, o){
   const status = o.deliveryStatus||'en_espera';
   const itemsTxt = o.items.map(it=>`${it.qty}x ${it.n}`).join(', ');
   const waLink = o.phone ? `<a class="btn secondary" href="https://wa.me/1${String(o.phone).replace(/\D/g,'')}?text=${encodeURIComponent('Hola, soy el repartidor de Melma Por Kilo, voy con tu pedido #'+code)}" target="_blank" rel="noopener">💬 WhatsApp</a>` : '';
-  return `<div class="repcard" data-code="${code}">
+  return `<div class="repcard" data-code="${code}" data-created="${(o.createdAt&&o.createdAt.toMillis)?o.createdAt.toMillis():''}">
     <div style="display:flex;justify-content:space-between;align-items:center;">
       <b style="color:var(--gold2);">#${code}</b>
       <b>${fmt(o.total)}</b>
@@ -1943,7 +1943,7 @@ function startRepartidorListener(){
     const currentIds = new Set();
     snapshot.forEach(doc=>{
       const o = doc.data();
-      if(o.deliveryStatus!=='entregado' && o.status!=='cancelado'){ rows.push({code:doc.id, o}); currentIds.add(doc.id); }
+      if(o.deliveryStatus!=='entregado' && o.status!=='cancelado' && !isStaleOrder(o)){ rows.push({code:doc.id, o}); currentIds.add(doc.id); }
     });
     if(repartidorOrderIdsSeen!==null){
       let hayNuevo = false;
@@ -2021,11 +2021,28 @@ function fmtOrderDateTime(o){
     return d.toLocaleString('es-DO', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
   }catch(e){ return ''; }
 }
+/* Fecha + hora del pedido (hora de Nueva York), ej. "mar, 13 oct 2026 · 6:29 PM" */
 function fmtOrderTime(o){
   try{
     const d = o.createdAt && o.createdAt.toDate ? o.createdAt.toDate() : new Date();
-    return d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+    const dia = d.toLocaleDateString('es-US', {timeZone:'America/New_York', weekday:'short', day:'numeric', month:'short', year:'numeric'});
+    const hora = d.toLocaleTimeString('en-US', {timeZone:'America/New_York', hour:'numeric', minute:'2-digit'});
+    return dia + ' · ' + hora;
   }catch(e){ return ''; }
+}
+/* Los pedidos con más de 24 horas desaparecen solos de los paneles
+   (siguen guardados para los reportes de ventas). */
+const ORDER_MAX_AGE_MS = 24*60*60*1000;
+/* Si el panel se queda abierto, cada 5 min quita los pedidos que ya cumplieron 24 h */
+setInterval(()=>{
+  document.querySelectorAll('[data-created]').forEach(el=>{
+    const ms = parseInt(el.getAttribute('data-created'),10);
+    if(ms && Date.now()-ms > ORDER_MAX_AGE_MS) el.remove();
+  });
+}, 300000);
+function isStaleOrder(o){
+  const ms = o && o.createdAt && o.createdAt.toMillis ? o.createdAt.toMillis() : null;
+  return ms!==null && (Date.now()-ms) > ORDER_MAX_AGE_MS;
 }
 function receiptCopyHtml(code, o, copyLabel){
   let subtotal = 0;
@@ -2116,7 +2133,7 @@ function orderRowHtml(code, o){
     <button class="btn danger" data-cancel="${code}" style="padding:8px;">✖ Cancelar</button>
     ${(!isDelivery && o.status==='pendiente') ? `<button class="btn" data-confirm="${code}" style="padding:8px;">Confirmar pago</button>` : ''}
   `;
-  return `<div style="padding:10px 0;border-bottom:1px solid var(--line);">
+  return `<div class="orderrow" data-created="${(o.createdAt&&o.createdAt.toMillis)?o.createdAt.toMillis():''}" style="padding:10px 0;border-bottom:1px solid var(--line);">
     <div style="display:flex;justify-content:space-between;align-items:center;">
       <div><b style="color:var(--gold2);">#${code}</b> ${pill}${acceptedPill} ${isDelivery?'<span class="pill pend">Delivery</span>':''}</div>
       <b>${fmt(o.total)}</b>
@@ -2181,16 +2198,16 @@ function startPendingOrdersListener(){
   if(!PEDIDOS){ pendWrap.innerHTML = '<div class="noresult">No hay conexión con el sistema de pedidos.</div>'; return; }
   unsubscribePending = PEDIDOS.where('status','==','pendiente').onSnapshot(snapshot=>{
     const currentIds = new Set();
-    snapshot.forEach(doc=> currentIds.add(doc.id));
+    snapshot.forEach(doc=>{ if(!isStaleOrder(doc.data())) currentIds.add(doc.id); });
     if(pendingOrderIdsSeen!==null){
       let hayNuevo = false;
       currentIds.forEach(id=>{ if(!pendingOrderIdsSeen.has(id)) hayNuevo = true; });
       if(hayNuevo) playNewOrderSound();
     }
     pendingOrderIdsSeen = currentIds;
-    if(snapshot.empty){ pendWrap.innerHTML = '<div class="noresult">No hay pedidos pendientes</div>'; return; }
     const rows = [];
-    snapshot.forEach(doc=> rows.push({code:doc.id, o:doc.data()}));
+    snapshot.forEach(doc=>{ const d = doc.data(); if(!isStaleOrder(d)) rows.push({code:doc.id, o:d}); });
+    if(rows.length===0){ pendWrap.innerHTML = '<div class="noresult">No hay pedidos pendientes</div>'; return; }
     rows.sort((a,b)=>(a.o.createdAt?.toMillis?.()||0) - (b.o.createdAt?.toMillis?.()||0));
     pendWrap.innerHTML = rows.map(r=>orderRowHtml(r.code, r.o)).join('');
     wireConfirmButtons(pendWrap);

@@ -538,15 +538,18 @@ footer b{color:var(--gold2);}
       <button class="tabbtn" data-tab="tabPrecios">Precios</button>
       <button class="tabbtn" data-tab="tabPromos">Promos</button>
       <button class="tabbtn" data-tab="tabPedidos">Pedidos</button>
+      <button class="tabbtn" data-tab="tabCaja">🧾 Caja</button>
       <button class="tabbtn" data-tab="tabReportes">Reportes</button>
     </div>
 
     <div class="tabpane active" id="tabEstado">
-      <div class="toggleline">
-        <div>Negocio abierto</div>
-        <div class="switch on" id="openSwitch"><div class="knob"></div></div>
+      <div class="cathead" style="margin-top:4px;">Menú abierto / cerrado</div>
+      <div style="display:flex;gap:8px;margin:8px 0;">
+        <button type="button" class="btn" id="modeAuto" style="flex:1;padding:10px;">🕒 Automático</button>
+        <button type="button" class="btn secondary" id="modeOpen" style="flex:1;padding:10px;">🟢 Abrir ya</button>
+        <button type="button" class="btn secondary" id="modeClosed" style="flex:1;padding:10px;">🔴 Cerrar ya</button>
       </div>
-      <p class="sub" style="margin-top:-8px;">Este estado se guarda en este dispositivo/navegador.</p>
+      <p class="sub" id="modeNote" style="margin-top:0;"></p>
 
       <div class="cathead" style="margin-top:22px;">Cambiar clave del panel de administrador</div>
       <input id="newAdminPass" type="password" placeholder="Nueva clave" style="width:100%;margin-bottom:8px;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:14px;">
@@ -597,6 +600,28 @@ footer b{color:var(--gold2);}
       <div id="orderFindResult"></div>
       <div class="cathead" style="margin-top:18px;">Pedidos pendientes</div>
       <div class="pendlist" id="pendingList"></div>
+    </div>
+
+    <div class="tabpane" id="tabCaja">
+      <div class="cathead" style="margin-top:4px;">Caja — venta en el camión</div>
+      <p class="sub" style="margin:2px 0 8px;">Toca los platos, elige cómo paga el cliente y cobra. Sale el recibo listo para imprimir.</p>
+      <div id="posCats" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>
+      <div id="posGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;"></div>
+      <div id="posPicker" style="display:none;margin-top:10px;padding:10px;border:1px solid var(--gold);border-radius:10px;background:var(--card2);"></div>
+      <div class="cathead" style="margin-top:16px;">Cuenta actual</div>
+      <div id="posLines"></div>
+      <div class="statrow" style="border-bottom:none;"><div style="font-weight:800;color:var(--gold2);">TOTAL</div><b id="posTotal" style="font-size:18px;">$0</b></div>
+      <div style="display:flex;gap:8px;margin:8px 0;">
+        <button class="btn" id="posPayCash" style="flex:1;padding:10px;">💵 Efectivo</button>
+        <button class="btn secondary" id="posPayCard" style="flex:1;padding:10px;">💳 Tarjeta / Apple Pay</button>
+      </div>
+      <div id="posCashBox" style="display:block;margin-bottom:8px;">
+        <input id="posCashGiven" type="number" step="0.01" min="0" inputmode="decimal" placeholder="Efectivo recibido (opcional)" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:14px;">
+        <div id="posChange" style="margin-top:6px;font-weight:700;color:var(--gold2);"></div>
+      </div>
+      <p class="sub" id="posCardNote" style="display:none;margin:0 0 8px;">Cobra primero en la máquina de tarjetas y luego toca "Cobrar" para registrar la venta.</p>
+      <button class="btn" id="posChargeBtn" style="padding:12px;">✅ Cobrar e imprimir recibo</button>
+      <button class="btn secondary" id="posClearBtn" style="margin-top:8px;padding:10px;">Vaciar cuenta</button>
     </div>
 
     <div class="tabpane" id="tabReportes">
@@ -916,8 +941,9 @@ function loadCustomCache(){ try{return JSON.parse(localStorage.getItem(LS_CUSTOM
 function saveCustomCache(list){ localStorage.setItem(LS_CUSTOM, JSON.stringify(list)); }
 function loadPricesCache(){ try{return JSON.parse(localStorage.getItem(LS_PRICES))||{};}catch(e){return {};} }
 function savePricesCache(o){ localStorage.setItem(LS_PRICES, JSON.stringify(o)); }
-function loadOpenCache(){ const v=localStorage.getItem(LS_OPEN); return v===null?true:v==="1"; }
-function saveOpenCache(b){ localStorage.setItem(LS_OPEN, b?"1":"0"); }
+/* Modo del menú: 'auto' (horario 3 PM–3 AM), 'open' (abierto a mano a cualquier hora), 'closed' (cerrado a mano) */
+function loadOpenCache(){ const v=localStorage.getItem(LS_OPEN); return (v==='auto'||v==='open'||v==='closed') ? v : (v==="0" ? 'closed' : 'auto'); }
+function saveOpenCache(m){ localStorage.setItem(LS_OPEN, m); }
 function loadStockCache(){ try{return JSON.parse(localStorage.getItem(LS_STOCK))||{};}catch(e){return {};} }
 function saveStockCache(m){ localStorage.setItem(LS_STOCK, JSON.stringify(m)); }
 function loadStats(){ try{return JSON.parse(localStorage.getItem(LS_STATS))||{visits:0,searches:0,chats:0,terms:{}};}catch(e){return {visits:0,searches:0,chats:0,terms:{}};} }
@@ -925,7 +951,7 @@ function saveStats(s){ localStorage.setItem(LS_STATS, JSON.stringify(s)); }
 
 /* ---- live in-memory state, kept up to date by Firestore listeners ---- */
 let overrides = loadPricesCache();
-let manualOpen = loadOpenCache();
+let openMode = loadOpenCache();
 /* Horario automático (hora de Nueva York): abierto de 3:00 PM a 3:00 AM */
 function inSchedule(){
   let h;
@@ -933,9 +959,10 @@ function inSchedule(){
   catch(e){ h = new Date().getHours(); }
   return h>=15 || h<3;
 }
-let isOpen = manualOpen && inSchedule();
+function computeOpen(){ return openMode==='open' ? true : (openMode==='closed' ? false : inSchedule()); }
+let isOpen = computeOpen();
 function recomputeOpen(){
-  const v = manualOpen && inSchedule();
+  const v = computeOpen();
   if(v!==isOpen){
     isOpen = v;
     try{ renderStatus(); renderMenu(); if(ADMIN_MODE) renderAdminStatus(); }catch(e){}
@@ -968,9 +995,9 @@ function watchConfig(){
   if(CONFIG_ESTADO){
     CONFIG_ESTADO.onSnapshot(doc=>{
       const d = doc.data();
-      manualOpen = d && typeof d.open==='boolean' ? d.open : true;
-      saveOpenCache(manualOpen);
-      isOpen = manualOpen && inSchedule();
+      openMode = (d && (d.mode==='auto'||d.mode==='open'||d.mode==='closed')) ? d.mode : ((d && d.open===false) ? 'closed' : 'auto');
+      saveOpenCache(openMode);
+      isOpen = computeOpen();
       renderStatus(); renderMenu();
       if(ADMIN_MODE) renderAdminStatus();
     }, ()=>{});
@@ -1286,7 +1313,7 @@ function renderStatus(){
   const badge = document.getElementById('statusBadge');
   const text = document.getElementById('statusText');
   badge.className = 'badge ' + (isOpen?'open':'closed');
-  text.textContent = isOpen ? 'Abierto ahora' : (manualOpen ? 'Cerrado · abrimos a las 3:00 PM' : 'Cerrado ahora');
+  text.textContent = isOpen ? 'Abierto ahora' : (openMode==='auto' ? 'Cerrado · abrimos a las 3:00 PM' : 'Cerrado ahora');
 }
 renderStatus();
 
@@ -2075,7 +2102,8 @@ function receiptCopyHtml(code, o, copyLabel){
     <hr>
     <div class="r-row"><div>Subtotal</div><div>${fmt(subtotal)}</div></div>
     <div class="r-row r-total"><div>TOTAL</div><div>${fmt(o.total)}</div></div>
-    <div class="r-foot">Pagas en efectivo o tarjeta al recibir<br>¡Gracias por tu compra!</div>
+    ${o.payMethod==='efectivo' && o.cashGiven ? `<div class="r-row"><div>Efectivo recibido</div><div>${fmt(Number(o.cashGiven))}</div></div><div class="r-row"><div>Cambio</div><div>${fmt(Math.max(0,Number(o.cashGiven)-Number(o.total)))}</div></div>` : ''}
+    <div class="r-foot">${o.source==='caja' ? 'PAGADO · '+(o.payMethod==='tarjeta'?'Tarjeta':'Efectivo') : 'Pagas en efectivo o tarjeta al recibir'}<br>¡Gracias por tu compra!</div>
   </div>`;
 }
 function receiptHtml(code, o){
@@ -2217,26 +2245,32 @@ function startPendingOrdersListener(){
 }
 
 /* --- Estado tab --- */
-const openSwitch = document.getElementById('openSwitch');
 function renderAdminStatus(){
-  openSwitch.classList.toggle('on', manualOpen);
+  const m = openMode;
+  document.getElementById('modeAuto').className = 'btn' + (m==='auto'?'':' secondary');
+  document.getElementById('modeOpen').className = 'btn' + (m==='open'?'':' secondary');
+  document.getElementById('modeClosed').className = 'btn' + (m==='closed'?'':' secondary');
+  const txt = {
+    auto: 'Automático: abre solo a las 3:00 PM y cierra a las 3:00 AM (hora de Nueva York). Ahora mismo está ' + (isOpen?'ABIERTO':'CERRADO') + '.',
+    open: 'Abierto a mano: el menú está ABIERTO a cualquier hora hasta que toques otra opción. Toca "Automático" para volver al horario normal.',
+    closed: 'Cerrado a mano: el menú está CERRADO a cualquier hora hasta que toques otra opción. Toca "Automático" para volver al horario normal.'
+  };
+  document.getElementById('modeNote').textContent = txt[m];
 }
-openSwitch.addEventListener('click', async ()=>{
-  const now = !manualOpen;
+async function setOpenMode(mode){
   if(CONFIG_ESTADO){
-    openSwitch.style.pointerEvents = 'none';
-    try{ await CONFIG_ESTADO.set({open:now}, {merge:true}); }
+    try{ await CONFIG_ESTADO.set({mode:mode, open: mode!=='closed'}, {merge:true}); }
     catch(e){ alert('No se pudo actualizar el estado, revisa la conexión.'); }
-    openSwitch.style.pointerEvents = '';
     // el listener de Firestore actualiza isOpen y vuelve a pintar todo
   } else {
-    manualOpen = now; isOpen = manualOpen && inSchedule();
-    saveOpenCache(now);
-    renderAdminStatus();
-    renderStatus();
-    renderMenu();
+    openMode = mode; isOpen = computeOpen();
+    saveOpenCache(mode);
+    renderAdminStatus(); renderStatus(); renderMenu();
   }
-});
+}
+document.getElementById('modeAuto').addEventListener('click', ()=>setOpenMode('auto'));
+document.getElementById('modeOpen').addEventListener('click', ()=>setOpenMode('open'));
+document.getElementById('modeClosed').addEventListener('click', ()=>setOpenMode('closed'));
 document.getElementById('changePassBtn').addEventListener('click', async ()=>{
   const val = document.getElementById('newAdminPass').value.trim();
   if(!val) return;
@@ -2647,6 +2681,149 @@ document.getElementById('resetReportsBtn').addEventListener('click', async ()=>{
 });
 
 /* --- Tabs switching --- */
+
+/* ================= CAJA (Point of Sale) =================
+   El trabajador toca los platos, elige efectivo o tarjeta y cobra. Se guarda
+   un pedido ya PAGADO (source:'caja') en Firestore, así cuenta en los reportes
+   como venta del local, descuenta inventario y abre el recibo para imprimir. */
+let posCart = [];          // [{key,id,n,base,price,qty,note}]
+let posPay = 'efectivo';
+let posCat = null;
+function posTotal(){ return posCart.reduce((a,l)=>a+l.price*l.qty,0); }
+function posCategories(){ return currentMenuSections().map(s=>s.cat); }
+function posRenderCats(){
+  const wrap = document.getElementById('posCats'); if(!wrap) return;
+  const cats = posCategories();
+  if(!posCat || cats.indexOf(posCat)===-1) posCat = cats[0] || null;
+  wrap.innerHTML = cats.map(c=>`<button type="button" class="btn ${c===posCat?'':'secondary'}" data-poscat="${c.replace(/"/g,'&quot;')}" style="width:auto;padding:6px 12px;font-size:12.5px;">${c}</button>`).join('');
+  wrap.querySelectorAll('[data-poscat]').forEach(b=> b.onclick = ()=>{ posCat = b.dataset.poscat; posRenderCats(); posRenderGrid(); });
+}
+function posRenderGrid(){
+  const grid = document.getElementById('posGrid'); if(!grid) return;
+  const sec = currentMenuSections().find(s=>s.cat===posCat);
+  const items = sec ? sec.items : [];
+  grid.innerHTML = items.map(it=>{
+    const st = stockOf(it.id); const out = st!==null && st<=0;
+    return `<button type="button" class="btn secondary" data-positem="${it.id}" ${out?'disabled':''} style="padding:10px 8px;text-align:center;line-height:1.25;">
+      <div style="font-weight:700;">${it.n}</div><div style="color:var(--gold2);">${fmt(effectivePrice(it))}</div>${out?'<div style="color:#e74c3c;font-size:11px;">Agotado</div>':''}</button>`;
+  }).join('') || '<div class="noresult">Sin platos</div>';
+  grid.querySelectorAll('[data-positem]').forEach(b=> b.onclick = ()=> posTapItem(b.dataset.positem));
+}
+function posTapItem(id){
+  const it = itemById(id); if(!it) return;
+  const picker = document.getElementById('posPicker');
+  if(it.variants && it.variants.length){
+    picker.style.display = 'block';
+    picker.innerHTML = `<div style="font-weight:700;margin-bottom:6px;">${it.n} — elige la opción</div>` +
+      it.variants.map(v=>`<button type="button" class="btn secondary" data-posvar="${v.replace(/"/g,'&quot;')}" style="width:auto;display:inline-block;margin:0 6px 6px 0;padding:8px 12px;">${v}</button>`).join('') +
+      `<button type="button" class="btn secondary" id="posPickCancel" style="width:auto;display:inline-block;margin:0 0 6px 0;padding:8px 12px;">Cancelar</button>`;
+    picker.querySelectorAll('[data-posvar]').forEach(b=> b.onclick = ()=>{ picker.style.display='none'; posAddLine(it, b.dataset.posvar); });
+    document.getElementById('posPickCancel').onclick = ()=>{ picker.style.display='none'; };
+  } else {
+    document.getElementById('posPicker').style.display = 'none';
+    posAddLine(it, '');
+  }
+}
+function posAddLine(it, variant){
+  const key = it.id + '|' + variant;
+  const found = posCart.find(l=>l.key===key);
+  if(found) found.qty++;
+  else posCart.push({key, id:it.id, base:it.n, variant, price:effectivePrice(it), qty:1, note:''});
+  posRenderCart();
+}
+function posLineName(l){
+  const parts = [];
+  if(l.variant) parts.push(l.variant);
+  if(l.note && l.note.trim()) parts.push(l.note.trim());
+  return l.base + (parts.length ? ' — '+parts.join(', ') : '');
+}
+function posRenderCart(){
+  const wrap = document.getElementById('posLines'); if(!wrap) return;
+  if(!posCart.length){ wrap.innerHTML = '<div class="noresult">La cuenta está vacía</div>'; }
+  else {
+    wrap.innerHTML = posCart.map((l,i)=>`<div style="padding:8px 0;border-bottom:1px solid var(--line);">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <div style="flex:1;"><b>${l.base}</b>${l.variant?` <span style="color:var(--muted);">— ${l.variant}</span>`:''}<div style="color:var(--muted);font-size:12px;">${l.qty} x ${fmt(l.price)}</div></div>
+        <div class="qtybox"><button type="button" data-posdec="${i}">−</button><span>${l.qty}</span><button type="button" data-posinc="${i}">+</button></div>
+        <b style="min-width:52px;text-align:right;">${fmt(l.price*l.qty)}</b>
+      </div>
+      <input type="text" data-posnote="${i}" value="${(l.note||'').replace(/"/g,'&quot;')}" placeholder="Nota (ej. sin cebolla)" style="width:100%;margin-top:6px;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:13px;">
+    </div>`).join('');
+    wrap.querySelectorAll('[data-posdec]').forEach(b=> b.onclick = ()=>{ const l=posCart[+b.dataset.posdec]; l.qty--; if(l.qty<=0) posCart.splice(+b.dataset.posdec,1); posRenderCart(); });
+    wrap.querySelectorAll('[data-posinc]').forEach(b=> b.onclick = ()=>{ posCart[+b.dataset.posinc].qty++; posRenderCart(); });
+    wrap.querySelectorAll('[data-posnote]').forEach(inp=> inp.oninput = ()=>{ posCart[+inp.dataset.posnote].note = inp.value; });
+  }
+  document.getElementById('posTotal').textContent = fmt(posTotal());
+  posUpdateChange();
+}
+function posUpdateChange(){
+  const given = parseFloat(document.getElementById('posCashGiven').value);
+  const el = document.getElementById('posChange');
+  if(posPay==='efectivo' && !isNaN(given) && given>0){
+    const diff = given - posTotal();
+    el.textContent = diff>=0 ? 'Cambio: '+fmt(Math.round(diff*100)/100) : 'Faltan: '+fmt(Math.round(-diff*100)/100);
+    el.style.color = diff>=0 ? 'var(--gold2)' : '#e74c3c';
+  } else el.textContent = '';
+}
+function posSetPay(m){
+  posPay = m;
+  document.getElementById('posPayCash').className = 'btn' + (m==='efectivo'?'':' secondary');
+  document.getElementById('posPayCard').className = 'btn' + (m==='tarjeta'?'':' secondary');
+  document.getElementById('posCashBox').style.display = m==='efectivo' ? 'block' : 'none';
+  document.getElementById('posCardNote').style.display = m==='tarjeta' ? 'block' : 'none';
+  posUpdateChange();
+}
+function posReset(){
+  posCart = [];
+  document.getElementById('posCashGiven').value = '';
+  document.getElementById('posPicker').style.display = 'none';
+  posRenderCart();
+}
+async function posCharge(){
+  if(!posCart.length){ alert('La cuenta está vacía.'); return; }
+  const btn = document.getElementById('posChargeBtn');
+  const total = Math.round(posTotal()*100)/100;
+  const given = parseFloat(document.getElementById('posCashGiven').value);
+  if(posPay==='efectivo' && !isNaN(given) && given>0 && given<total){ alert('El efectivo recibido es menos que el total.'); return; }
+  btn.disabled = true; btn.textContent = 'Guardando...';
+  try{
+    if(!PEDIDOS) throw new Error('sin-conexion');
+    const code = await genUniqueCode();
+    const items = posCart.map(l=>({id:l.id, n:posLineName(l), qty:l.qty, price:l.price}));
+    const doc = {
+      code, items, total, status:'pagado', type:'pickup', source:'caja',
+      payMethod:posPay, prepStatus:'aceptado',
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      paidAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    if(posPay==='efectivo' && !isNaN(given) && given>0) doc.cashGiven = given;
+    await PEDIDOS.doc(code).set(doc);
+    if(INVENTARIO_COL){
+      try{
+        const batch = db.batch();
+        items.forEach(it=>{ if(stockOf(it.id)!==null) batch.set(INVENTARIO_COL.doc(it.id), {stock: firebase.firestore.FieldValue.increment(-it.qty)}, {merge:true}); });
+        await batch.commit();
+      }catch(e){ console.error('No se pudo actualizar el inventario:', e); }
+    }
+    const now = Date.now();
+    ordersCache[code] = Object.assign({}, doc, {createdAt:{toDate:()=>new Date(now), toMillis:()=>now}});
+    posReset();
+    openReceiptModal(code);
+  }catch(e){
+    alert('No se pudo registrar la venta, revisa la conexión.');
+  }
+  btn.disabled = false; btn.textContent = '✅ Cobrar e imprimir recibo';
+}
+if(ADMIN_MODE){
+  document.getElementById('posPayCash').onclick = ()=>posSetPay('efectivo');
+  document.getElementById('posPayCard').onclick = ()=>posSetPay('tarjeta');
+  document.getElementById('posCashGiven').oninput = posUpdateChange;
+  document.getElementById('posChargeBtn').onclick = posCharge;
+  document.getElementById('posClearBtn').onclick = ()=>{ if(!posCart.length || confirm('¿Vaciar la cuenta?')) posReset(); };
+  document.querySelector('[data-tab="tabCaja"]').addEventListener('click', ()=>{ posRenderCats(); posRenderGrid(); posRenderCart(); });
+  posSetPay('efectivo'); posRenderCart();
+}
+
 document.querySelectorAll('.tabbtn').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     document.querySelectorAll('.tabbtn').forEach(b=>b.classList.remove('active'));

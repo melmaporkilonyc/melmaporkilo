@@ -501,7 +501,8 @@ footer b{color:var(--gold2);}
   <div class="receiptbox">
     <div style="padding:12px 16px 0;"><button class="closex" id="closeReceipt">✕</button></div>
     <div class="receipt-actions">
-      <button class="btn" id="printReceiptBtn">🖨 Imprimir</button>
+      <button class="btn" id="printDirectBtn">🖨 Imprimir en impresora</button>
+      <button class="btn secondary" id="printReceiptBtn">📄 Imprimir (navegador)</button>
       <button class="btn secondary" id="closeReceiptBtn2">Cerrar</button>
     </div>
     <div class="receipt-paper" id="receiptBody"></div>
@@ -898,7 +899,7 @@ const DEFAULT_REP_PASS = "4577";
 
 /* ================= PAGE MODE (client menu vs admin, same file/origin so
    all data stays in sync — reached via two different links) ================= */
-const ADMIN_MODE = location.hash === '#admin';
+const ADMIN_MODE = true; // este archivo abre directo en el panel administrador;
 const DELIVERY_MODE = location.hash === '#delivery';
 const REPARTIDOR_MODE = location.hash === '#repartidor';
 if(ADMIN_MODE){ document.body.classList.add('admin-mode'); }
@@ -2114,6 +2115,7 @@ function receiptHtml(code, o){
 function openReceiptModal(code){
   const o = ordersCache[code];
   if(!o) return;
+  currentReceiptCode = code;
   document.getElementById('receiptBody').innerHTML = receiptHtml(code, o);
   document.getElementById('receiptOverlay').classList.add('show');
 }
@@ -2121,6 +2123,48 @@ function closeReceiptModal(){ document.getElementById('receiptOverlay').classLis
 document.getElementById('closeReceipt').addEventListener('click', closeReceiptModal);
 document.getElementById('closeReceiptBtn2').addEventListener('click', closeReceiptModal);
 document.getElementById('printReceiptBtn').addEventListener('click', ()=>window.print());
+
+/* ===== Impresión directa ESC/POS (SNBC BTP-S80, 80 mm) vía app RawBT ===== */
+const TICKET_W = 48; /* caracteres por línea, 80 mm fuente A */
+function escNoAccent(s){ return String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\x20-\x7e]/g,'?'); }
+function escMoney(n){ return '$'+(Number(n)||0).toFixed(2); }
+function escLR(l,r){ l=escNoAccent(l); r=escNoAccent(r); const sp=Math.max(1,TICKET_W-l.length-r.length); return l+' '.repeat(sp)+r+'\n'; }
+function escCenter(s){ s=escNoAccent(s); const p=Math.max(0,Math.floor((TICKET_W-s.length)/2)); return ' '.repeat(p)+s+'\n'; }
+function escopsCopy(code,o,label){
+  const ESC='\x1b', GS='\x1d';
+  const isDel=o.type==='delivery';
+  let t=ESC+'@';
+  t+=ESC+'a\x01'+GS+'!\x11'+'MELMA POR KILO\n'+GS+'!\x00';
+  t+=escCenter('@melma_por_kilo - 347-969-4577');
+  t+=ESC+'E\x01'+escCenter(label)+ESC+'E\x00';
+  t+='-'.repeat(TICKET_W)+'\n'+ESC+'a\x00';
+  t+=escLR('Pedido','#'+code);
+  t+=escLR('Fecha',fmtOrderDateTime(o));
+  t+=escLR('Tipo',isDel?'Delivery':'Recoger en el camion');
+  if(isDel){ if(o.name)t+=escLR('Cliente',o.name); if(o.address)t+=escNoAccent('Direccion: '+o.address)+'\n'; if(o.phone)t+=escLR('Telefono',o.phone); }
+  t+='-'.repeat(TICKET_W)+'\n';
+  let sub=0;
+  (o.items||[]).forEach(it=>{ const lt=(it.price||0)*(it.qty||1); sub+=lt; t+=escLR((it.qty||1)+'x '+it.n, escMoney(lt)); });
+  t+='-'.repeat(TICKET_W)+'\n';
+  t+=escLR('Subtotal',escMoney(sub));
+  t+=ESC+'E\x01'+GS+'!\x01'+escLR('TOTAL',escMoney(o.total))+GS+'!\x00'+ESC+'E\x00';
+  if(o.payMethod==='efectivo'&&o.cashGiven){ t+=escLR('Efectivo recibido',escMoney(o.cashGiven)); t+=escLR('Cambio',escMoney(Math.max(0,Number(o.cashGiven)-Number(o.total)))); }
+  t+=ESC+'a\x01\n'+escCenter(o.source==='caja'?('PAGADO - '+(o.payMethod==='tarjeta'?'Tarjeta':'Efectivo')):'Pagas en efectivo o tarjeta al recibir');
+  t+=escCenter('Gracias por tu compra!');
+  t+='\n\n\n'+GS+'V\x42\x00';
+  return t;
+}
+function escposReceipt(code,o){
+  const s=escopsCopy(code,o,'COPIA CLIENTE')+escopsCopy(code,o,'COPIA COCINA / TRABAJADOR');
+  const b=new Uint8Array(s.length); for(let i=0;i<s.length;i++) b[i]=s.charCodeAt(i)&255; return b;
+}
+function printDirect(code){
+  const o=ordersCache[code]; if(!o) return;
+  const b=escposReceipt(code,o); let bin=''; for(let i=0;i<b.length;i++) bin+=String.fromCharCode(b[i]);
+  const a=document.createElement('a'); a.href='rawbt:base64,'+btoa(bin); document.body.appendChild(a); a.click(); a.remove();
+}
+let currentReceiptCode=null;
+document.getElementById('printDirectBtn').addEventListener('click', ()=>{ if(currentReceiptCode) printDirect(currentReceiptCode); });
 document.getElementById('receiptOverlay').addEventListener('click', (e)=>{
   if(e.target.id==='receiptOverlay') closeReceiptModal();
 });
